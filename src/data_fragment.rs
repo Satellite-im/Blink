@@ -71,6 +71,7 @@ impl StaticFragment for DataFragment {
         let h = Code::Sha2_256.digest("default".as_bytes());
 
         DataFragment {
+            // A version of -1 indicates the fragment has not yet been initalized
             v: -1,
             cid: Cid::new_v1(RAW, h),
             timestamp: 0,
