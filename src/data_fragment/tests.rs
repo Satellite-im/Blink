@@ -6,16 +6,16 @@ mod data_fragment_tests {
     use crate::data_fragment::{DataFragment, StaticFragment, self, LiveFragment};
 
     #[test]
-    fn it_works() {
-        let mut fragment: DataFragment = DataFragment::default().from("MockData".to_string());
-        assert_eq!(fragment.v, 0);
+    fn expect_default() {
+        let mut fragment: DataFragment = DataFragment::default();
+        assert_eq!(fragment.v, -1);
         fragment.update("Hello, World!".to_string());
-        assert_eq!(fragment.v, 1);
+        assert_eq!(fragment.v, 0);
     }
 
     #[test]
     fn expect_cid_matching() {
-        let mut fragment: DataFragment = DataFragment::default().from("MockData".to_string());
+        let fragment: DataFragment = DataFragment::default().from("MockData".to_string());
         let h = Code::Sha2_256.digest("MockData".as_bytes());
         let cid = Cid::new_v1(data_fragment::RAW, h);
         assert_eq!(fragment.cid, cid);

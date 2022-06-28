@@ -14,7 +14,7 @@ const RAW: u64 = 0x55;
 #[derive(Clone, Debug)]
 pub struct DataFragment {
     /// We version the DataFragment every time it's mutated
-    pub v: u32,
+    pub v: i32,
     /// MultiFormat CID: https://github.com/multiformats/cid
     pub cid: Cid,
     /// Timestamp indicating last mutation event (ns since epoch)
@@ -32,6 +32,7 @@ pub trait StaticFragment {
     fn update(&mut self, data: String) -> &mut Self;
     fn from(&mut self, data: String) -> DataFragment;
     fn _update_timestamp(&mut self);
+    fn _build_cid(&mut self);
 }
 
 pub trait LiveFragment {
@@ -70,7 +71,7 @@ impl StaticFragment for DataFragment {
         let h = Code::Sha2_256.digest("default".as_bytes());
 
         DataFragment {
-            v: 0,
+            v: -1,
             cid: Cid::new_v1(RAW, h),
             timestamp: 0,
             data: "".to_string(),
@@ -80,19 +81,23 @@ impl StaticFragment for DataFragment {
     }
 
     fn from(&mut self, data: String) -> DataFragment {
-        // Generate a Multihash based on the content
-        let h = Code::Sha2_256.digest(data.as_bytes());
-
         // Return the newley setup DataFragment
-        self.cid = Cid::new_v1(RAW, h);
-        self._update_timestamp();
+        self.v = 0;
         self.data = data;
+        self._update_timestamp();
+        self._build_cid();
         self.clone()
     }
     /// Internal method to update the timestamp, this happens any time the data is mutated
     fn _update_timestamp(&mut self) {
         let now = Utc::now();
         self.timestamp = now.timestamp_nanos();
+    }
+
+    fn _build_cid(&mut self) {
+        // Generate a Multihash based on the content
+        let h = Code::Sha2_256.digest(self.data.as_bytes());
+        self.cid = Cid::new_v1(RAW, h);
     }
 
     /// Update the data stored inside the fragment.
@@ -107,6 +112,10 @@ impl StaticFragment for DataFragment {
     fn update(&mut self, data: String) -> &mut Self {
         self.data = data;
         self.v += 1;
+        // If this is the first data being entered into the fragment, we need to generate a CID
+        if self.v == 0 {
+            self._build_cid();
+        }
         self._update_timestamp();
         self
     }
