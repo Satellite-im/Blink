@@ -15,7 +15,7 @@ mod data_fragment_tests {
 
     #[test]
     fn expect_cid_matching() {
-        let fragment: DataFragment = DataFragment::default().from("MockData".to_string());
+        let mut fragment: DataFragment = DataFragment::default().from("MockData".to_string());
         let h = Code::Sha2_256.digest("MockData".as_bytes());
         let cid = Cid::new_v1(data_fragment::RAW, h);
         assert_eq!(fragment.cid, cid);
@@ -45,7 +45,8 @@ mod data_fragment_tests {
 
     #[test]
     fn expect_stream_alive() {
-        let fragment: DataFragment = DataFragment::default().from("MockData".to_string()).live();
+        let mut fragment: DataFragment = DataFragment::default().from("MockData".to_string());
+        fragment.live();
         assert_eq!(fragment.alive, true);
     }
 }

@@ -17,7 +17,7 @@ pub struct DataFragment {
     pub v: u32,
     /// MultiFormat CID: https://github.com/multiformats/cid
     pub cid: Cid,
-    /// Timestamp indicating last mutation event
+    /// Timestamp indicating last mutation event (ns since epoch)
     pub timestamp: i64,
     /// Serialized data this fragment represents
     pub data: String,
@@ -29,15 +29,15 @@ pub struct DataFragment {
 
 pub trait StaticFragment {
     fn default() -> DataFragment;
-    fn update(&mut self, data: String) -> DataFragment;
-    fn from(self, data: String) -> Self;
+    fn update(&mut self, data: String) -> &mut Self;
+    fn from(&mut self, data: String) -> DataFragment;
     fn _update_timestamp(&mut self);
 }
 
 pub trait LiveFragment {
-    fn live(self) -> Self;
-    fn kill(&mut self) -> Self;
-    fn is_alive(self) -> bool;
+    fn live(&mut self) -> &mut Self;
+    fn kill(&mut self) -> &mut Self;
+    fn is_alive(&mut self) -> bool;
 }
 
 impl StaticFragment for DataFragment {
@@ -79,22 +79,20 @@ impl StaticFragment for DataFragment {
         }
     }
 
-    fn from(mut self, data: String) -> Self {
+    fn from(&mut self, data: String) -> DataFragment {
         // Generate a Multihash based on the content
         let h = Code::Sha2_256.digest(data.as_bytes());
 
-        let now = Utc::now();
-
         // Return the newley setup DataFragment
-        self.cid = Cid::new_v1(1, h);
+        self.cid = Cid::new_v1(RAW, h);
+        self._update_timestamp();
         self.data = data;
-        self.timestamp = now.timestamp();
-        self
+        self.clone()
     }
     /// Internal method to update the timestamp, this happens any time the data is mutated
     fn _update_timestamp(&mut self) {
         let now = Utc::now();
-        self.timestamp = now.timestamp_millis();
+        self.timestamp = now.timestamp_nanos();
     }
 
     /// Update the data stored inside the fragment.
@@ -106,17 +104,17 @@ impl StaticFragment for DataFragment {
     /// let fragment: DataFragment = DataFragment::new(Some("Inital data"), None);
     /// fragment.set_data(Some("New data"));
     /// ```
-    fn update(&mut self, data: String) -> DataFragment {
+    fn update(&mut self, data: String) -> &mut Self {
         self.data = data;
         self.v += 1;
         self._update_timestamp();
-        self.clone()
+        self
     }
 }
 
 
 impl LiveFragment for DataFragment {
-    fn live(mut self) -> Self {
+    fn live(&mut self) -> &mut Self {
         self.alive = true;
         self._update_timestamp();
         self
@@ -130,10 +128,10 @@ impl LiveFragment for DataFragment {
     /// let fragment: DataFragment = DataFragment::new(Some("Stream Here"), None);
     /// fragment.kill();
     /// ```
-    fn kill(&mut self) -> Self {
+    fn kill(&mut self) -> &mut Self {
         self.alive = false;
         self._update_timestamp();
-        self.clone()
+        self
     }
 
     /// Check the status of the fragment
@@ -145,7 +143,7 @@ impl LiveFragment for DataFragment {
     /// let fragment: DataFragment = DataFragment::new(Some("Stream Here"), None);
     /// fragment.is_alive(); // false
     /// ```
-    fn is_alive(self) -> bool {
+    fn is_alive(&mut self) -> bool {
         self.alive
     }
 }
