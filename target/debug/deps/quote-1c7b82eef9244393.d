@@ -1,0 +1,13 @@
+/Users/retro/Git/Satellite/Blink/target/debug/deps/quote-1c7b82eef9244393.rmeta: /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/lib.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ext.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/format.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ident_fragment.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/to_tokens.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/runtime.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/spanned.rs
+
+/Users/retro/Git/Satellite/Blink/target/debug/deps/libquote-1c7b82eef9244393.rlib: /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/lib.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ext.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/format.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ident_fragment.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/to_tokens.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/runtime.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/spanned.rs
+
+/Users/retro/Git/Satellite/Blink/target/debug/deps/quote-1c7b82eef9244393.d: /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/lib.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ext.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/format.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ident_fragment.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/to_tokens.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/runtime.rs /Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/spanned.rs
+
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/lib.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ext.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/format.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/ident_fragment.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/to_tokens.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/runtime.rs:
+/Users/retro/.cargo/registry/src/github.com-1ecc6299db9ec823/quote-1.0.20/src/spanned.rs:
