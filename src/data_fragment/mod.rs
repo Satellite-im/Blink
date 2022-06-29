@@ -1,12 +1,16 @@
 // Tests located under data_fragment/tests.rs
 #[cfg(test)]
 mod tests;
+pub(crate) mod traits;
+pub(crate) mod errors;
 
 // For additional docs see data_fragment/docs.md
 
 use chrono::Utc;
 use cid::multihash::{Code, MultihashDigest};
 use cid::Cid;
+
+use self::traits::{FragmentAccessor, Fragment, LiveFragment};
 
 const RAW: u64 = 0x55;
 
@@ -27,21 +31,8 @@ pub struct DataFragment {
     alive: bool,
 }
 
-pub trait StaticFragment {
-    fn default() -> DataFragment;
-    fn update(&mut self, data: String) -> &mut Self;
-    fn from(&mut self, data: String) -> DataFragment;
-    fn _update_timestamp(&mut self);
-    fn _build_cid(&mut self);
-}
+impl Default for DataFragment {
 
-pub trait LiveFragment {
-    fn live(&mut self) -> &mut Self;
-    fn kill(&mut self) -> &mut Self;
-    fn is_alive(&mut self) -> bool;
-}
-
-impl StaticFragment for DataFragment {
     /// Returns a new DataFragment
     ///
     /// NOTICE: If you're here without using the Oracle you may be using it wrong.
@@ -75,20 +66,56 @@ impl StaticFragment for DataFragment {
             v: -1,
             cid: Cid::new_v1(RAW, h),
             timestamp: 0,
-            data: "".to_string(),
+            data: String::new(),
             stream: false,
             alive: false
         }
     }
+}
 
-    fn from(&mut self, data: String) -> DataFragment {
-        // Return the newley setup DataFragment
-        self.v = 0;
-        self.data = data;
-        self._update_timestamp();
-        self._build_cid();
-        self.clone()
+
+impl From<String> for DataFragment {
+    /// Generate a new CID and store our inital data
+    fn from(data: String) -> Self {
+        let h = Code::Sha2_256.digest(data.as_bytes());
+
+        DataFragment {
+            v: 0,
+            cid: Cid::new_v1(RAW, h),
+            timestamp: Utc::now().timestamp_nanos(),
+            data,
+            stream: false,
+            alive: false
+        }
     }
+}
+
+impl FragmentAccessor for DataFragment {
+    fn get(&self) -> &DataFragment {
+        self
+    }
+    /// Update the data stored inside the fragment.
+    ///
+    /// # Examples
+    /// 
+    /// ```
+    /// use crate::data_fragment::{DataFragment};
+    /// use crate::data_fragment::traits::FragmentAccessor;
+    /// let fragment: DataFragment = DataFragment::from(Some("Inital data"), None);
+    /// fragment.set("New data".to_string());
+    /// ```
+    fn set(&mut self, data: Option<String>) {
+        self.data = data.unwrap_or(String::new());
+        self.v += 1;
+        // If this is the first data being entered into the fragment, we need to generate a CID
+        if self.v == 0 {
+            self._build_cid();
+        }
+        self._update_timestamp();
+    }
+}
+
+impl Fragment for DataFragment {
     /// Internal method to update the timestamp, this happens any time the data is mutated
     fn _update_timestamp(&mut self) {
         let now = Utc::now();
@@ -101,30 +128,11 @@ impl StaticFragment for DataFragment {
         self.cid = Cid::new_v1(RAW, h);
     }
 
-    /// Update the data stored inside the fragment.
-    ///
-    /// # Examples
-    /// 
-    /// ```
-    /// use data_fragment::DataFragment;
-    /// let fragment: DataFragment = DataFragment::new(Some("Inital data"), None);
-    /// fragment.set_data(Some("New data"));
-    /// ```
-    fn update(&mut self, data: String) -> &mut Self {
-        self.data = data;
-        self.v += 1;
-        // If this is the first data being entered into the fragment, we need to generate a CID
-        if self.v == 0 {
-            self._build_cid();
-        }
-        self._update_timestamp();
-        self
-    }
 }
 
 
 impl LiveFragment for DataFragment {
-    fn live(&mut self) -> &mut Self {
+    fn wake(&mut self) -> &mut Self {
         self.alive = true;
         self._update_timestamp();
         self
