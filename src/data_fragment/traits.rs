@@ -1,4 +1,4 @@
-use super::{DataFragment, errors::FragmentErrorData};
+use super::{errors::FragmentErrorData, DataFragment};
 
 pub trait FragmentAccessor {
     fn get(&self) -> &DataFragment;

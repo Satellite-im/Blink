@@ -1,8 +1,8 @@
 // Tests located under data_fragment/tests.rs
+pub(crate) mod errors;
 #[cfg(test)]
 mod tests;
 pub(crate) mod traits;
-pub(crate) mod errors;
 
 // For additional docs see data_fragment/docs.md
 
@@ -10,7 +10,7 @@ use chrono::Utc;
 use cid::multihash::{Code, MultihashDigest};
 use cid::Cid;
 
-use self::traits::{FragmentAccessor, Fragment, LiveFragment};
+use self::traits::{Fragment, FragmentAccessor, LiveFragment};
 
 const RAW: u64 = 0x55;
 
@@ -32,11 +32,10 @@ pub struct DataFragment {
 }
 
 impl Default for DataFragment {
-
     /// Returns a new DataFragment
     ///
     /// NOTICE: If you're here without using the Oracle you may be using it wrong.
-    /// 
+    ///
     /// # Arguments
     ///
     /// * `data` - An encoded string represending the data to be stored. Note the inital data is used to generate our CID
@@ -49,15 +48,15 @@ impl Default for DataFragment {
     /// use data_fragment::DataFragment;
     /// DataFragment::new(Some(String::from("MockData")), None);
     /// ```
-    /// 
+    ///
     /// ```
     /// // Referencing a stream
     /// use data_fragment::DataFragment;
     /// let blob_partial = SomeBlob.slice().resize(32, 0).to_string();
     /// DataFragment::new(Some(blob), None);
     /// ```
-    /// 
-    
+    ///
+
     fn default() -> DataFragment {
         let h = Code::Sha2_256.digest("default".as_bytes());
 
@@ -68,11 +67,10 @@ impl Default for DataFragment {
             timestamp: 0,
             data: String::new(),
             stream: false,
-            alive: false
+            alive: false,
         }
     }
 }
-
 
 impl From<String> for DataFragment {
     /// Generate a new CID and store our inital data
@@ -85,7 +83,7 @@ impl From<String> for DataFragment {
             timestamp: Utc::now().timestamp_nanos(),
             data,
             stream: false,
-            alive: false
+            alive: false,
         }
     }
 }
@@ -97,7 +95,7 @@ impl FragmentAccessor for DataFragment {
     /// Update the data stored inside the fragment.
     ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use crate::data_fragment::{DataFragment};
     /// use crate::data_fragment::traits::FragmentAccessor;
@@ -127,9 +125,7 @@ impl Fragment for DataFragment {
         let h = Code::Sha2_256.digest(self.data.as_bytes());
         self.cid = Cid::new_v1(RAW, h);
     }
-
 }
-
 
 impl LiveFragment for DataFragment {
     fn wake(&mut self) -> &mut Self {
@@ -138,9 +134,9 @@ impl LiveFragment for DataFragment {
         self
     }
     /// Indicate that the associated stream is no longer alive
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use data_fragment::DataFragment;
     /// let fragment: DataFragment = DataFragment::new(Some("Stream Here"), None);
@@ -155,7 +151,7 @@ impl LiveFragment for DataFragment {
     /// Check the status of the fragment
     ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use data_fragment::DataFragment;
     /// let fragment: DataFragment = DataFragment::new(Some("Stream Here"), None);

@@ -1,10 +1,12 @@
-
 #[cfg(test)]
 mod data_fragment_tests {
-    use cid::{Cid, multihash::{Code, MultihashDigest}};
+    use cid::{
+        multihash::{Code, MultihashDigest},
+        Cid,
+    };
 
-    use crate::data_fragment::{DataFragment, self, traits::LiveFragment};
     use crate::data_fragment::traits::FragmentAccessor;
+    use crate::data_fragment::{self, traits::LiveFragment, DataFragment};
 
     #[test]
     fn expect_default() {

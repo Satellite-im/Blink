@@ -32,14 +32,14 @@ impl FragmentError for FragmentErrors {
     }
 }
 
-impl FragmentError for FragmentErrorData {
-    fn is_fatal(&self) -> bool {
-        self.fatal
-    }
-    fn get(&self) -> FragmentErrorData {
-        *self
-    }
-}
+// impl FragmentError for FragmentErrorData {
+//     fn is_fatal(&self) -> bool {
+//         self.fatal
+//     }
+//     fn get(&self) -> FragmentErrorData {
+//         *self
+//     }
+// }
 
 impl From<FragmentErrors> for FragmentErrorData {
     fn from(e: FragmentErrors) -> FragmentErrorData {
