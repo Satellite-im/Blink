@@ -13,3 +13,5 @@ rand = "0.8.5"
 strum_macros = "0.24.2"
 libp2p = "0.46.1"
 anyhow = "1.0.58"
+tokio = { version =  "1.20.1", features = ["full"] }
+async-trait = "0.1.56"
