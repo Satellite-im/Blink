@@ -1,4 +1,8 @@
 use anyhow::{anyhow, Result};
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::relay::v2::relay;
+use libp2p::relay::v2::relay::{Event, Relay};
+use libp2p::swarm::NetworkBehaviour;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubEvent, MessageAuthenticity, MessageId,
@@ -16,11 +20,15 @@ use std::{
     time::Duration,
 };
 
+const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
+
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = true)]
 pub(crate) struct BlinkBehavior {
     gossip_sub: Gossipsub,
-    kademlia: Kademlia<MemoryStore>
+    kademlia: Kademlia<MemoryStore>,
+    identity: Identify,
+    relay: Relay,
 }
 
 impl BlinkBehavior {
@@ -36,18 +44,29 @@ impl BlinkBehavior {
                 MessageId::from(s.finish().to_string())
             }) // content-address messages. No two messages of the
             // same content will be propagated.
-            .build().map_err(|x| anyhow!(x))?;
+            .build()
+            .map_err(|x| anyhow!(x))?;
 
+        let relay = Relay::new(peer_id, Default::default());
         // Create a Kademlia behaviour.
         let mut kademlia_cfg = KademliaConfig::default();
         kademlia_cfg.set_query_timeout(Duration::from_secs(5 * 60));
         let store = MemoryStore::new(peer_id.clone());
         let kademlia = Kademlia::with_config(peer_id.clone(), store, kademlia_cfg);
-        let gossip_sub =
-            Gossipsub::new(MessageAuthenticity::Signed(key_pair.clone()), gossip_config).map_err(|x| anyhow!(x))?;
+        let gossip_sub: Gossipsub =
+            Gossipsub::new(MessageAuthenticity::Signed(key_pair.clone()), gossip_config)
+                .map_err(|x| anyhow!(x))?;
+
+        let identity = Identify::new(IdentifyConfig::new(
+            IDENTIFY_PROTOCOL_VERSION.into(),
+            key_pair.public(),
+        ));
+
         Ok(Self {
             gossip_sub,
-            kademlia
+            kademlia,
+            relay,
+            identity,
         })
     }
 
@@ -57,7 +76,29 @@ impl BlinkBehavior {
 }
 
 impl NetworkBehaviourEventProcess<KademliaEvent> for BlinkBehavior {
-    fn inject_event(&mut self, _: KademliaEvent) {
+    fn inject_event(&mut self, event: KademliaEvent) {
+        match event {
+            /// keep, find closest peer
+            KademliaEvent::InboundRequest { .. } => {}
+            // keep
+            KademliaEvent::OutboundQueryCompleted { .. } => {}
+            //KademliaEvent::RoutingUpdated { .. } => {}
+            KademliaEvent::UnroutablePeer { .. } => {}
+            KademliaEvent::RoutablePeer { .. } => {}
+            KademliaEvent::PendingRoutablePeer { .. } => {}
+            _ => {}
+        }
+    }
+}
+
+impl NetworkBehaviourEventProcess<IdentifyEvent> for BlinkBehavior {
+    fn inject_event(&mut self, event: IdentifyEvent) {
+        todo!()
+    }
+}
+
+impl NetworkBehaviourEventProcess<relay::Event> for BlinkBehavior {
+    fn inject_event(&mut self, event: Event) {
         todo!()
     }
 }
