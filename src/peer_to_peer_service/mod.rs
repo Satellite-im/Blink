@@ -4,15 +4,17 @@ use crate::peer_to_peer_service::behavior::BlinkBehavior;
 use anyhow::Result;
 use libp2p::{
     core::transport::upgrade,
+    futures::StreamExt,
     identity::Keypair,
     mplex, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp::GenTcpConfig,
     tcp::TokioTcpTransport,
     PeerId, Swarm, Transport,
-    futures::StreamExt
 };
 use std::time::Duration;
+use libp2p::core::PublicKey;
+use libp2p::kad::QueryId;
 
 pub struct PeerToPeerService {
     swarm: Swarm<BlinkBehavior>,
@@ -47,6 +49,13 @@ impl PeerToPeerService {
     //     let temp = self.swarm.behaviour_mut().;
     // }
 
+    pub async fn pair(&mut self, peers_to_connect: &[PublicKey]) {
+        for key in peers_to_connect {
+            let id = PeerId::from(key);
+            self.swarm.behaviour_mut().find_peers(id);
+        }
+    }
+
     pub async fn listen(&mut self, address: &str) -> Result<()> {
         self.swarm.listen_on(address.parse()?)?;
 
@@ -64,6 +73,8 @@ impl PeerToPeerService {
             }
         }
 
+        // connect to relay?
+
         Ok(())
     }
 }
@@ -77,7 +88,7 @@ impl PeerToPeerService {
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
     use crate::peer_to_peer_service::PeerToPeerService;
-    use libp2p::identity;
+    use libp2p::{identity, PeerId};
 
     #[tokio::test]
     async fn listen_does_not_throw() {
@@ -87,32 +98,12 @@ mod when_using_peer_to_peer_service {
     }
 
     #[tokio::test]
-    async fn sending_message_to_listening_service_works() {
-        // let mut service = PeerToPeerService::new();
-        // service.setup().await;
-        // service.listen().unwrap();
-        //
-        // let temp = service.swarm.as_mut().unwrap().select_next_some().await;
-        //
-        // if let SwarmEvent::NewListenAddr {
-        //     listener_id,
-        //     address,
-        // } = temp
-        // {
-        //     let mut some_client = PeerToPeerService::new();
-        //     some_client.setup().await.unwrap();
-        //     some_client.listen().unwrap();
-        //
-        //     some_client
-        //         .send(address.to_string().as_str())
-        //         .await
-        //         .unwrap();
-        //
-        //     let next = service.swarm.as_mut().unwrap().select_next_some().await;
-        //
-        //     dbg!(&next);
-        // } else {
-        //     panic!("Fail")
-        // }
+    async fn connecting_to_a_sequence_of_peers_generates_specific_events() {
+        let id_keys = identity::Keypair::generate_ed25519();
+        let mut service = PeerToPeerService::new(id_keys).unwrap();
+        service.listen("/ip4/0.0.0.0/tcp/0").await.unwrap();
+
+        let second_client = identity::Keypair::generate_ed25519();
+        service.pair(&vec![second_client.public()]).await;
     }
 }
