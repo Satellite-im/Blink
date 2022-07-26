@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use libp2p::gossipsub::{
     Gossipsub, GossipsubConfigBuilder, MessageAuthenticity, MessageId, ValidationMode,
 };
-use libp2p::{identity::Keypair, PeerId, Swarm};
+use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -64,6 +64,15 @@ impl PeerToPeerService {
 
         Ok(())
     }
+
+    pub async fn send(&mut self, address: &str) -> Result<()> {
+        if let Some(swm) = &mut self.swarm {
+            let addr : Multiaddr = address.parse()?;
+            swm.dial(addr)?;
+        }
+
+        Err(anyhow!("You need to setup the service first"))
+    }
 }
 
 impl<'a> PeerToPeerContract for PeerToPeerService {
@@ -79,12 +88,33 @@ impl<'a> PeerToPeerContract for PeerToPeerService {
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
+    use libp2p::futures::StreamExt;
+    use libp2p::swarm::SwarmEvent;
     use crate::peer_to_peer_service::{PeerToPeerContract, PeerToPeerService};
 
     #[tokio::test]
-    async fn listen_must_work() {
+    async fn listen_does_not_throw() {
         let mut service = PeerToPeerService::new();
         service.setup().await.unwrap();
         service.listen().unwrap();
+    }
+
+    #[tokio::test]
+    async fn sending_message_to_listening_service_works() {
+        let mut service = PeerToPeerService::new();
+        service.setup().await;
+        service.listen().unwrap();
+
+        let temp = service.swarm.unwrap().select_next_some().await;
+
+        if let SwarmEvent::NewListenAddr { listener_id,  address  } = temp {
+            let mut some_client  = PeerToPeerService::new();
+            some_client.setup().await.unwrap();
+            some_client.listen().unwrap();
+
+            some_client.send(address.to_string().as_str()).await.unwrap();
+        } else {
+            panic!("Fail")
+        }
     }
 }
