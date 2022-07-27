@@ -26,7 +26,7 @@ use libp2p::kad::QueryId;
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
 #[derive(NetworkBehaviour)]
-#[behaviour(event_process = true)]
+#[behaviour(event_process = false, out_event = "BehaviourEvent")]
 pub(crate) struct BlinkBehavior {
     gossip_sub: Gossipsub,
     kademlia: Kademlia<MemoryStore>,
@@ -73,67 +73,38 @@ impl BlinkBehavior {
         })
     }
 
-    // pub(crate) fn subscribe_to_topic(&mut self, topic: &Topic<DefaultHasher>) -> Result<bool> {
-    //     self.gossip_sub.subscribe(topic).map_err(|err| anyhow::Error::from(err))
-    // }
-
-    pub(crate) fn find_peers(&mut self, peer_id: PeerId) -> QueryId {
+    pub(crate) fn find_peer(&mut self, peer_id: PeerId) -> QueryId {
         self.kademlia.get_closest_peers(peer_id)
     }
 }
 
-impl NetworkBehaviourEventProcess<KademliaEvent> for BlinkBehavior {
-    fn inject_event(&mut self, event: KademliaEvent) {
-        match event {
-            /// keep, find closest peer
-            KademliaEvent::InboundRequest { .. } => {}
-            // keep
-            KademliaEvent::OutboundQueryCompleted { .. } => {}
-            KademliaEvent::RoutingUpdated { .. } => {}
-            KademliaEvent::UnroutablePeer { .. } => {}
-            KademliaEvent::RoutablePeer { .. } => {}
-            KademliaEvent::PendingRoutablePeer { .. } => {}
-        }
+pub(crate) enum BehaviourEvent {
+    Gossipsub(GossipsubEvent),
+    RelayEvent(Event),
+    KademliaEvent(KademliaEvent),
+    IdentifyEvent(IdentifyEvent)
+}
+
+impl From<IdentifyEvent> for BehaviourEvent {
+    fn from(event: IdentifyEvent) -> Self {
+        BehaviourEvent::IdentifyEvent(event)
     }
 }
 
-impl NetworkBehaviourEventProcess<IdentifyEvent> for BlinkBehavior {
-    fn inject_event(&mut self, event: IdentifyEvent) {
-        match event {
-            IdentifyEvent::Received { .. } => {}
-            IdentifyEvent::Sent { .. } => {}
-            IdentifyEvent::Pushed { .. } => {}
-            IdentifyEvent::Error { .. } => {}
-        }
+impl From<KademliaEvent> for BehaviourEvent {
+    fn from(event: KademliaEvent) -> Self {
+        BehaviourEvent::KademliaEvent(event)
     }
 }
 
-impl NetworkBehaviourEventProcess<relay::Event> for BlinkBehavior {
-    fn inject_event(&mut self, event: Event) {
-        match event {
-            Event::ReservationReqAccepted { .. } => {}
-            Event::ReservationReqAcceptFailed { .. } => {}
-            Event::ReservationReqDenied { .. } => {}
-            Event::ReservationReqDenyFailed { .. } => {}
-            Event::ReservationTimedOut { .. } => {}
-            Event::CircuitReqReceiveFailed { .. } => {}
-            Event::CircuitReqDenied { .. } => {}
-            Event::CircuitReqDenyFailed { .. } => {}
-            Event::CircuitReqAccepted { .. } => {}
-            Event::CircuitReqOutboundConnectFailed { .. } => {}
-            Event::CircuitReqAcceptFailed { .. } => {}
-            Event::CircuitClosed { .. } => {}
-        }
+impl From<GossipsubEvent> for BehaviourEvent {
+    fn from(event: GossipsubEvent) -> Self {
+        BehaviourEvent::Gossipsub(event)
     }
 }
 
-impl NetworkBehaviourEventProcess<GossipsubEvent> for BlinkBehavior {
-    fn inject_event(&mut self, event: GossipsubEvent) {
-        match event {
-            GossipsubEvent::Message { .. } => {}
-            GossipsubEvent::Subscribed { .. } => {}
-            GossipsubEvent::Unsubscribed { .. } => {}
-            GossipsubEvent::GossipsubNotSupported { .. } => {}
-        }
+impl From<relay::Event> for BehaviourEvent {
+    fn from(event: relay::Event) -> Self {
+        BehaviourEvent::RelayEvent(event)
     }
 }
