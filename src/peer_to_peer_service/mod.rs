@@ -1,4 +1,6 @@
 mod behavior;
+mod command_handlers;
+mod event_handlers;
 
 use std::sync::Arc;
 use crate::peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior};
@@ -13,110 +15,76 @@ use libp2p::{
     tcp::TokioTcpTransport,
     PeerId, Swarm, Transport,
 };
-use std::time::Duration;
-use libp2p::core::PublicKey;
-use libp2p::kad::{GetClosestPeersResult, KademliaEvent, QueryId, QueryResult};
-use libp2p::kad::PutRecordPhase::GetClosestPeers;
+use libp2p::{
+    core::PublicKey,
+    kad::{GetClosestPeersResult, KademliaEvent, QueryId, QueryResult},
+    kad::PutRecordPhase::GetClosestPeers
+};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
+use crate::peer_to_peer_service::command_handlers::{BlinkCommandHandler, PairCommandHandler};
+use crate::peer_to_peer_service::event_handlers::EventHandler;
 
 type CancellationToken = Arc<RwLock<bool>>;
 
+#[derive(Debug)]
 pub enum BlinkCommand {
     Pair(Vec<PeerId>)
 }
 
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
+    task_handle: JoinHandle<()>,
 }
 
-trait BlinkCommandHandler {
-    fn can_handle(command: &BlinkCommand) -> bool;
-    fn handle(swarm: &mut Swarm<BlinkBehavior>, command: &BlinkCommand);
-}
-
-#[derive(Default)]
-struct PairCommandHandler {
-}
-
-impl BlinkCommandHandler for PairCommandHandler {
-    fn can_handle(command: &BlinkCommand) -> bool {
-        if let BlinkCommand::Pair(x) = command {
-            return true;
-        }
-
-        false
-    }
-
-    fn handle(swarm: &mut Swarm<BlinkBehavior>, command: &BlinkCommand) {
-        if let BlinkCommand::Pair(peers) = command {
-            for peer in peers {
-                swarm.behaviour_mut().find_peer(*peer);
-            }
-        }
+impl Drop for PeerToPeerService {
+    fn drop(&mut self) {
+        self.task_handle.abort();
     }
 }
 
-trait EventHandler {
-    fn can_handle<TErr>(event: &SwarmEvent<BehaviourEvent, TErr>) -> bool;
-    fn handle<TErr>(swarm: &mut Swarm<BlinkBehavior>, event: &SwarmEvent<BehaviourEvent, TErr>);
+pub trait ILogger {
+    fn info(&mut self, info: &String);
 }
-
-#[derive(Default)]
-struct PairResultEventHandler {
-}
-
-impl EventHandler for PairResultEventHandler {
-    fn can_handle<TErr>(event: &SwarmEvent<BehaviourEvent, TErr>) -> bool {
-        if let SwarmEvent::Behaviour(BehaviourEvent::KademliaEvent(ev)) = event {
-            if let KademliaEvent::OutboundQueryCompleted { .. } = ev {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    fn handle<TErr>(swarm: &mut Swarm<BlinkBehavior>, event: &SwarmEvent<BehaviourEvent, TErr>) {
-        if let SwarmEvent::Behaviour(BehaviourEvent::KademliaEvent(ev)) = event {
-            if let KademliaEvent::OutboundQueryCompleted { result: outbound, .. } = ev {
-                match outbound {
-                    QueryResult::Bootstrap(_) => {}
-                    QueryResult::GetClosestPeers(_) => {}
-                    QueryResult::GetProviders(_) => {}
-                    QueryResult::StartProviding(_) => {}
-                    QueryResult::RepublishProvider(_) => {}
-                    QueryResult::GetRecord(_) => {}
-                    QueryResult::PutRecord(_) => {}
-                    QueryResult::RepublishRecord(_) => {}
-                }
-            }
-        }
-    }
-}
-
 
 impl PeerToPeerService {
-    pub fn new(key_pair: Keypair, address_to_listen: &str, cancellation_token: CancellationToken) -> Result<Self> {
+    pub fn new(key_pair: Keypair,
+               address_to_listen: &str,
+               logger: Arc<Mutex<Box<dyn ILogger + Send>>>,
+               cancellation_token: CancellationToken) -> Result<Self> {
         let mut swarm = Self::create_swarm(key_pair)?;
         swarm.listen_on(address_to_listen.parse()?)?;
 
+        let mut command_handlers : Vec<Box<dyn BlinkCommandHandler + Send>> = vec![Box::new(PairCommandHandler::default())];
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(32);
 
-        tokio::spawn(async move {
+        let handler = tokio::spawn(async move {
             loop {
                 let cnl = cancellation_token.read().await;
 
                 if *cnl {
+                    println!("leaving the loop");
                     break;
                 }
 
                 tokio::select! {
                     cmd = command_rx.recv() => {
-                        Self::handle_command(&mut swarm, cmd);
+                        if let Some(command) = cmd {
+                            for handler in &mut command_handlers {
+                                if handler.can_handle(&command) {
+                                    handler.handle(&mut swarm, &command);
+                                }
+                            }
+                        }
                     },
                    event = swarm.select_next_some() => {
-                        Self::handle_event(&mut swarm, event);
+                        if let SwarmEvent::NewListenAddr { address, .. } = &event {
+                            let mut log = logger.lock().await;
+                            log.info(&format!("Listening on {}", address));
+                        } else {
+                            Self::handle_event(&mut swarm, event);
+                        }
                    }
                }
             }
@@ -125,16 +93,12 @@ impl PeerToPeerService {
         // connect to relay?
 
         Ok(Self {
-            command_channel: command_tx
+            command_channel: command_tx,
+            task_handle: handler,
         })
     }
 
-    fn handle_command(swarm: &mut Swarm<BlinkBehavior>, command: Option<BlinkCommand>) {
-        todo!()
-    }
-
     fn handle_event<HandlerErr>(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, HandlerErr>) {
-        todo!()
     }
 
     fn create_swarm(key_pair: Keypair) -> Result<Swarm<BlinkBehavior>> {
@@ -161,34 +125,47 @@ impl PeerToPeerService {
         Ok(swarm)
     }
 
-    pub async fn pair(&mut self, peers_to_connect: &[PublicKey]) {
-        self.command_channel.send(BlinkCommand::Pair(peers_to_connect.iter().map(|x| PeerId::from(x)).collect()));
+    pub async fn pair(&mut self, peers_to_connect: &[PublicKey]) -> Result<()> {
+        self.command_channel.send(BlinkCommand::Pair(peers_to_connect.iter().map(|x| PeerId::from(x)).collect())).await?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
     use std::sync::Arc;
-    use crate::peer_to_peer_service::PeerToPeerService;
+    use std::time::Duration;
+    use crate::peer_to_peer_service::{ILogger, PeerToPeerService};
     use libp2p::{identity, PeerId};
-    use tokio::sync::RwLock;
+    use tokio::sync::{Mutex, RwLock};
 
-    // #[tokio::test]
-    // async fn listen_does_not_throw() {
-    //     let id_keys = identity::Keypair::generate_ed25519();
-    //     let mut service = PeerToPeerService::new(id_keys).unwrap();
-    //     let cancellation_token = Arc::new(RwLock::new(false));
-    //     service.open("/ip4/0.0.0.0/tcp/0", cancellation_token.clone()).await.unwrap();
-    // }
-    //
-    // #[tokio::test]
-    // async fn connecting_to_a_sequence_of_peers_generates_specific_events() {
-    //     let id_keys = identity::Keypair::generate_ed25519();
-    //     let mut service = PeerToPeerService::new(id_keys).unwrap();
-    //     let cancellation_token = Arc::new(RwLock::new(false));
-    //     service.open("/ip4/0.0.0.0/tcp/0", cancellation_token.clone()).await.unwrap();
-    //
-    //     let second_client = identity::Keypair::generate_ed25519();
-    //     service.pair(&vec![second_client.public()]).await;
-    // }
+    #[derive(Default)]
+    struct Logger {}
+    unsafe impl Send for Logger {}
+
+    impl ILogger for Logger {
+        fn info(&mut self, info: &String) {
+            println!("{}", info);
+        }
+    }
+
+    #[tokio::test]
+    async fn open_does_not_throw() {
+        let id_keys = identity::Keypair::generate_ed25519();
+        let cancellation_token = Arc::new(RwLock::new(false));
+        let logger: Arc<Mutex<Box<dyn ILogger + Send + 'static>>>  = Arc::new(Mutex::new(Box::new(Logger::default())));
+        PeerToPeerService::new(id_keys, "/ip4/0.0.0.0/tcp/0", logger.clone(), cancellation_token.clone()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn connecting_to_a_sequence_of_peers_generates_specific_events() {
+        let id_keys = identity::Keypair::generate_ed25519();
+        let cancellation_token = Arc::new(RwLock::new(false));
+        let logger: Arc<Mutex<Box<dyn ILogger + Send + 'static>>> = Arc::new(Mutex::new(Box::new(Logger::default())));
+        let mut service = PeerToPeerService::new(id_keys, "/ip4/0.0.0.0/tcp/0", logger.clone(), cancellation_token.clone()).unwrap();
+
+        let second_client = identity::Keypair::generate_ed25519();
+        service.pair(&vec![second_client.public()]).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }

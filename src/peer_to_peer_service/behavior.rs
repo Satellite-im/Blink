@@ -12,7 +12,6 @@ use libp2p::{
         relay::{Event, Relay},
     },
     swarm::NetworkBehaviour,
-    swarm::NetworkBehaviourEventProcess,
     NetworkBehaviour, PeerId,
 };
 use std::{
@@ -78,6 +77,7 @@ impl BlinkBehavior {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum BehaviourEvent {
     Gossipsub(GossipsubEvent),
     RelayEvent(Event),
