@@ -422,6 +422,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "did-key",
  "libp2p",
  "sata",
  "tokio",

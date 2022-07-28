@@ -1,21 +1,24 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use libp2p::identity::Keypair;
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
+use crate::peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior};
+use crate::peer_to_peer_service::CancellationToken;
 use anyhow::Result;
-use libp2p::gossipsub::GossipsubEvent;
-use libp2p::kad::{KademliaEvent, QueryResult};
-use libp2p::{mplex, Multiaddr, noise, PeerId, Swarm};
-use libp2p::Transport;
 use libp2p::core::transport::upgrade;
+use libp2p::futures::StreamExt;
+use libp2p::gossipsub::GossipsubEvent;
+use libp2p::identity::Keypair;
+use libp2p::kad::{KademliaEvent, QueryResult};
 use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
 use libp2p::tcp::{GenTcpConfig, TokioTcpTransport};
-use libp2p::futures::StreamExt;
+use libp2p::Transport;
+use libp2p::{mplex, noise, Multiaddr, PeerId, Swarm};
 use sata::Sata;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
-use crate::peer_to_peer_service::CancellationToken;
-use crate::peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior};
+use tokio::task::JoinHandle;
+use warp::data::{DataObject, DataType};
+use warp::pocket_dimension::PocketDimension;
 
 #[derive(Debug)]
 pub enum BlinkCommand {
@@ -26,7 +29,8 @@ pub enum BlinkCommand {
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
     task_handle: JoinHandle<()>,
-    local_addr: Arc<RwLock<Vec<Multiaddr>>>
+    local_addr: Arc<RwLock<Vec<Multiaddr>>>,
+    cache: Arc<RwLock<Box<dyn PocketDimension>>>,
 }
 
 impl Drop for PeerToPeerService {
@@ -40,6 +44,7 @@ impl PeerToPeerService {
         key_pair: Keypair,
         address_to_listen: &str,
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
+        cache: Arc<RwLock<Box<dyn PocketDimension>>>,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let mut swarm = Self::create_swarm(key_pair)?;
@@ -54,12 +59,11 @@ impl PeerToPeerService {
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(32);
         let local_address = Arc::new(RwLock::new(Vec::new()));
         let thread_addr_to_set = local_address.clone();
+        let cache_to_thread = cache.clone();
 
         let handler = tokio::spawn(async move {
             loop {
-                let cnl = cancellation_token.read().await;
-
-                if *cnl {
+                if cancellation_token.load(Ordering::Acquire) {
                     println!("leaving the loop");
                     break;
                 }
@@ -72,7 +76,7 @@ impl PeerToPeerService {
                      },
                     event = swarm.select_next_some() => {
                          if let SwarmEvent::Behaviour(_) = event {
-                             Self::handle_behaviour_event(&mut swarm, event);
+                             Self::handle_behaviour_event(&mut swarm, event, cache_to_thread.clone()).await;
                          } else {
                              Self::handle_event(&mut swarm, event, thread_addr_to_set.clone()).await;
                          }
@@ -85,6 +89,7 @@ impl PeerToPeerService {
             command_channel: command_tx,
             task_handle: handler,
             local_addr: local_address,
+            cache,
         })
     }
 
@@ -101,9 +106,10 @@ impl PeerToPeerService {
         }
     }
 
-    fn handle_behaviour_event<TErr>(
+    async fn handle_behaviour_event<TErr>(
         swarm: &mut Swarm<BlinkBehavior>,
         event: SwarmEvent<BehaviourEvent, TErr>,
+        cache: Arc<RwLock<Box<dyn PocketDimension>>>,
     ) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => {
@@ -112,10 +118,15 @@ impl PeerToPeerService {
                         let message_data = message.data;
                         let data = bincode::deserialize::<Sata>(&message_data);
                         match data {
-                            Ok(_) => {
-                                // add info to cache
+                            Ok(info) => {
+                                let mut write = cache.write().await;
+                                // if let Err(e) = write.add_data(DataType::Messaging, info) {
+                                //     println!("Error while writing data to cache");
+                                // }
                             }
-                            Err(err) => { println!("Error while deserializing {}", err);}
+                            Err(err) => {
+                                println!("Error while deserializing {}", err);
+                            }
                         }
                     }
                     GossipsubEvent::Subscribed { .. } => {}
@@ -156,7 +167,7 @@ impl PeerToPeerService {
     async fn handle_event<TEvent, TErr>(
         _: &mut Swarm<BlinkBehavior>,
         event: SwarmEvent<TEvent, TErr>,
-        local_address: Arc<RwLock<Vec<Multiaddr>>>
+        local_address: Arc<RwLock<Vec<Multiaddr>>>,
     ) {
         match event {
             SwarmEvent::ConnectionEstablished { .. } => {}
@@ -202,7 +213,9 @@ impl PeerToPeerService {
     }
 
     pub async fn pair(&mut self, peer_id: PeerId) -> Result<()> {
-        self.command_channel.send(BlinkCommand::Dial(peer_id)).await?;
+        self.command_channel
+            .send(BlinkCommand::Dial(peer_id))
+            .await?;
         Ok(())
     }
 
@@ -214,18 +227,83 @@ impl PeerToPeerService {
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
-    use std::collections::HashMap;
+    use crate::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
     use libp2p::{identity, PeerId};
+    use std::collections::HashMap;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use std::time::Duration;
     use tokio::sync::RwLock;
-    use crate::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
+    use warp::data::{DataObject, DataType};
+    use warp::error::Error;
+    use warp::module::Module;
+    use warp::pocket_dimension::query::QueryBuilder;
+    use warp::pocket_dimension::PocketDimension;
+    use warp::{Extension, SingleHandle};
+
+    #[derive(Default)]
+    struct TestCache {}
+
+    impl Extension for TestCache {
+        fn id(&self) -> String {
+            todo!()
+        }
+
+        fn name(&self) -> String {
+            todo!()
+        }
+
+        fn module(&self) -> Module {
+            todo!()
+        }
+    }
+
+    impl SingleHandle for TestCache {}
+
+    impl PocketDimension for TestCache {
+        fn add_data(&mut self, dimension: DataType, data: &DataObject) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn has_data(&mut self, dimension: DataType, query: &QueryBuilder) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn get_data(
+            &self,
+            dimension: DataType,
+            query: Option<&QueryBuilder>,
+        ) -> Result<Vec<DataObject>, Error> {
+            todo!()
+        }
+
+        fn size(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+            todo!()
+        }
+
+        fn count(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+            todo!()
+        }
+
+        fn empty(&mut self, dimension: DataType) -> Result<(), Error> {
+            todo!()
+        }
+    }
 
     #[tokio::test]
     async fn open_does_not_throw() {
         let id_keys = identity::Keypair::generate_ed25519();
-        let cancellation_token = Arc::new(RwLock::new(false));
-        let service = PeerToPeerService::new(id_keys, "/ip4/0.0.0.0/tcp/0", None, cancellation_token.clone()).unwrap();
+        let cancellation_token = Arc::new(AtomicBool::new(false));
+        let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
+            Arc::new(RwLock::new(Box::new(TestCache::default())));
+        let service = PeerToPeerService::new(
+            id_keys,
+            "/ip4/0.0.0.0/tcp/0",
+            None,
+            cache.clone(),
+            cancellation_token.clone(),
+        )
+        .unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         let addr = service.get_local_address().await;
         assert!(addr.len() > 0);
@@ -233,16 +311,21 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn connecting_to_a_sequence_of_peers_generates_specific_events() {
-        let cancellation_token = Arc::new(RwLock::new(false));
+        let cancellation_token = Arc::new(AtomicBool::new(false));
         let mut addr_map = HashMap::new();
 
         let second_client_id = identity::Keypair::generate_ed25519();
         let second_client_peer = PeerId::from(second_client_id.public());
-        let second_client = PeerToPeerService::new(second_client_id,
-                                                   "/ip4/0.0.0.0/tcp/0",
-                                                   None,
-                                                   cancellation_token.clone())
-            .unwrap();
+        let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
+            Arc::new(RwLock::new(Box::new(TestCache::default())));
+        let second_client = PeerToPeerService::new(
+            second_client_id,
+            "/ip4/0.0.0.0/tcp/0",
+            None,
+            cache.clone(),
+            cancellation_token.clone(),
+        )
+        .unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         let addr = second_client.get_local_address().await;
@@ -250,11 +333,14 @@ mod when_using_peer_to_peer_service {
 
         let first_client_id = identity::Keypair::generate_ed25519();
 
-        let mut first_client = PeerToPeerService::new(first_client_id,
-                                                 "/ip4/0.0.0.0/tcp/0",
-                                                 Some(addr_map),
-                                                 cancellation_token.clone())
-            .unwrap();
+        let mut first_client = PeerToPeerService::new(
+            first_client_id,
+            "/ip4/0.0.0.0/tcp/0",
+            Some(addr_map),
+            cache.clone(),
+            cancellation_token.clone(),
+        )
+        .unwrap();
 
         first_client.pair(second_client_peer).await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
