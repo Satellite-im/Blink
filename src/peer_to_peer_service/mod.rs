@@ -17,6 +17,8 @@ use libp2p::{
     kad::{KademliaEvent, QueryResult},
 };
 use std::sync::Arc;
+use libp2p::gossipsub::GossipsubEvent;
+use sata::Sata;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -105,6 +107,23 @@ impl PeerToPeerService {
         event: SwarmEvent<BehaviourEvent, TErr>,
     ) {
         match event {
+            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => {
+                match gsp {
+                    GossipsubEvent::Message { message, .. } => {
+                        let message_data = message.data;
+                        let data = bincode::deserialize::<Sata>(&message_data);
+                        match data {
+                            Ok(info) => {
+                                // add info to cache
+                            }
+                            Err(err) => { println!("Error while deserializing {}", err);}
+                        }
+                    }
+                    GossipsubEvent::Subscribed { .. } => {}
+                    GossipsubEvent::Unsubscribed { .. } => {}
+                    GossipsubEvent::GossipsubNotSupported { .. } => {}
+                }
+            }
             SwarmEvent::Behaviour(BehaviourEvent::KademliaEvent(kad)) => match kad {
                 KademliaEvent::InboundRequest { .. } => {}
                 KademliaEvent::OutboundQueryCompleted { result, .. } => match result {
@@ -194,16 +213,6 @@ mod when_using_peer_to_peer_service {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::RwLock;
-
-    #[derive(Default)]
-    struct Logger {}
-    unsafe impl Send for Logger {}
-
-    impl ILogger for Logger {
-        fn info(&mut self, info: &String) {
-            println!("{}", info);
-        }
-    }
 
     #[tokio::test]
     async fn open_does_not_throw() {
