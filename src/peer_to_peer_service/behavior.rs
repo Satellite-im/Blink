@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubEvent, MessageAuthenticity, MessageId,
@@ -11,7 +12,6 @@ use libp2p::{
         relay,
         relay::{Event, Relay},
     },
-    swarm::NetworkBehaviour,
     NetworkBehaviour, PeerId,
 };
 use std::{
@@ -19,18 +19,16 @@ use std::{
     hash::{Hash, Hasher},
     time::Duration,
 };
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
-use libp2p::kad::QueryId;
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = false, out_event = "BehaviourEvent")]
 pub(crate) struct BlinkBehavior {
-    gossip_sub: Gossipsub,
-    kademlia: Kademlia<MemoryStore>,
-    identity: Identify,
-    relay: Relay,
+    pub(crate) gossip_sub: Gossipsub,
+    pub(crate) kademlia: Kademlia<MemoryStore>,
+    pub(crate) identity: Identify,
+    pub(crate) relay: Relay,
 }
 
 impl BlinkBehavior {
@@ -71,10 +69,6 @@ impl BlinkBehavior {
             identity,
         })
     }
-
-    pub(crate) fn find_peer(&mut self, peer_id: PeerId) -> QueryId {
-        self.kademlia.get_closest_peers(peer_id)
-    }
 }
 
 #[derive(Debug)]
@@ -82,7 +76,7 @@ pub(crate) enum BehaviourEvent {
     Gossipsub(GossipsubEvent),
     RelayEvent(Event),
     KademliaEvent(KademliaEvent),
-    IdentifyEvent(IdentifyEvent)
+    IdentifyEvent(IdentifyEvent),
 }
 
 impl From<IdentifyEvent> for BehaviourEvent {
