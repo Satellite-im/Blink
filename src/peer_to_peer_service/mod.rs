@@ -7,4 +7,11 @@ mod peer_to_peer_service;
 
 pub type CancellationToken = Arc<AtomicBool>;
 
-struct BlinkImpl {}
+pub enum LogEvent {
+    DialError(String),
+    SubscriptionError(String),
+}
+
+pub trait Logger {
+    fn event_occurred(&mut self, event: LogEvent);
+}
