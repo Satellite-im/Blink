@@ -12,8 +12,9 @@ use libp2p::Transport;
 use libp2p::{mplex, noise, Multiaddr, PeerId, Swarm};
 use sata::Sata;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use libp2p::identify::IdentifyEvent;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -98,16 +99,21 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         })
     }
 
-    async fn handle_command(swarm: &mut Swarm<BlinkBehavior>,
-                      command: BlinkCommand,
-                      logger: Arc<RwLock<TLogger>>) {
+    async fn handle_command(
+        swarm: &mut Swarm<BlinkBehavior>,
+        command: BlinkCommand,
+        logger: Arc<RwLock<TLogger>>,
+    ) {
         match command {
             BlinkCommand::FindNearest(peer_id) => {
                 swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
             }
             BlinkCommand::Dial(peer_id) => {
                 if let Err(err) = swarm.dial(peer_id) {
-                    logger.write().await.event_occurred(LogEvent::DialError(err.to_string()));
+                    logger
+                        .write()
+                        .await
+                        .event_occurred(LogEvent::DialError(err.to_string()));
                 }
             }
             BlinkCommand::Subscribe(address) => {
@@ -127,6 +133,18 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         logger: Arc<RwLock<TLogger>>,
     ) {
         match event {
+            SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => {
+                match identify {
+                    IdentifyEvent::Received { peer_id, info} => {
+                        let public_key = info.public_key;
+
+
+                    }
+                    IdentifyEvent::Sent { .. } => {}
+                    IdentifyEvent::Pushed { .. } => {}
+                    IdentifyEvent::Error { .. } => {}
+                }
+            }
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => {
                 match gsp {
                     GossipsubEvent::Message { message, .. } => {
@@ -228,20 +246,22 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         Ok(swarm)
     }
 
-    pub async fn pair(&mut self, peer_id: PeerId) -> Result<()> {
+    async fn subscribe_to_topic(&self, topic_name: String) -> Result<()> {
         self.command_channel
-            .send(BlinkCommand::Dial(peer_id))
+            .send(BlinkCommand::Subscribe(topic_name))
             .await?;
         Ok(())
     }
 
-    pub async fn get_local_address(&self) -> Vec<Multiaddr> {
+    async fn get_local_address(&self) -> Vec<Multiaddr> {
         let read = self.local_addr.read().await;
         read.clone()
     }
 
-    pub async fn subscribe_to_topic(&self, topic_name: String) -> Result<()> {
-        self.command_channel.send(BlinkCommand::Subscribe(topic_name)).await?;
+    async fn pair_to_another_peer(&mut self, peer_id: PeerId) -> Result<()> {
+        self.command_channel
+            .send(BlinkCommand::Dial(peer_id))
+            .await?;
         Ok(())
     }
 }
@@ -249,10 +269,11 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
     use crate::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
+    use crate::peer_to_peer_service::{LogEvent, Logger};
     use libp2p::{identity, PeerId};
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::RwLock;
     use warp::data::{DataObject, DataType};
@@ -261,7 +282,6 @@ mod when_using_peer_to_peer_service {
     use warp::pocket_dimension::query::QueryBuilder;
     use warp::pocket_dimension::PocketDimension;
     use warp::{Extension, SingleHandle};
-    use crate::peer_to_peer_service::{LogEvent, Logger};
 
     #[derive(Default)]
     struct TestCache {}
@@ -318,9 +338,7 @@ mod when_using_peer_to_peer_service {
 
     impl LogHandler {
         fn new() -> Self {
-            Self {
-                events: Vec::new(),
-            }
+            Self { events: Vec::new() }
         }
     }
 
@@ -336,7 +354,7 @@ mod when_using_peer_to_peer_service {
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
             Arc::new(RwLock::new(Box::new(TestCache::default())));
-        let log_handler= Arc::new(RwLock::new(LogHandler::new()));
+        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let service = PeerToPeerService::new(
             id_keys,
             "/ip4/0.0.0.0/tcp/0",
@@ -356,7 +374,7 @@ mod when_using_peer_to_peer_service {
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let mut addr_map = HashMap::new();
 
-        let log_handler= Arc::new(RwLock::new(LogHandler::new()));
+        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let second_client_id = identity::Keypair::generate_ed25519();
         let second_client_peer = PeerId::from(second_client_id.public());
         let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
@@ -387,7 +405,7 @@ mod when_using_peer_to_peer_service {
         )
         .unwrap();
 
-        first_client.pair(second_client_peer).await.unwrap();
+        first_client.pair_to_another_peer(second_client_peer).await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         assert!(log_handler.read().await.events.is_empty());
@@ -397,7 +415,7 @@ mod when_using_peer_to_peer_service {
     async fn subscribe_to_topic_does_not_cause_errors() {
         let cancellation_token = Arc::new(AtomicBool::new(false));
 
-        let log_handler= Arc::new(RwLock::new(LogHandler::new()));
+        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let client_id = identity::Keypair::generate_ed25519();
         let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
             Arc::new(RwLock::new(Box::new(TestCache::default())));
@@ -409,12 +427,20 @@ mod when_using_peer_to_peer_service {
             log_handler.clone(),
             cancellation_token.clone(),
         )
-            .unwrap();
+        .unwrap();
 
-        client.subscribe_to_topic("some channel".to_string()).await;
+        client
+            .subscribe_to_topic("some channel".to_string())
+            .await
+            .unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        log_handler.read().await.events.iter().all(|x| { if let LogEvent::SubscriptionError(_) = *x { return true; } false });
+        log_handler.read().await.events.iter().all(|x| {
+            if let LogEvent::SubscriptionError(_) = *x {
+                return true;
+            }
+            false
+        });
     }
 }
