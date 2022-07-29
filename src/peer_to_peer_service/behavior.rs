@@ -97,8 +97,8 @@ impl From<GossipsubEvent> for BehaviourEvent {
     }
 }
 
-impl From<relay::Event> for BehaviourEvent {
-    fn from(event: relay::Event) -> Self {
+impl From<Event> for BehaviourEvent {
+    fn from(event: Event) -> Self {
         BehaviourEvent::RelayEvent(event)
     }
 }

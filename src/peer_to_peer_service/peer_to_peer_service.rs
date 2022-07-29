@@ -1,9 +1,9 @@
 use crate::peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior};
-use crate::peer_to_peer_service::{CancellationToken, LogEvent, Logger};
+use crate::peer_to_peer_service::{CancellationToken, libp2p_pub_to_did, LogEvent, Logger};
 use anyhow::Result;
 use libp2p::core::transport::upgrade;
 use libp2p::futures::StreamExt;
-use libp2p::gossipsub::{GossipsubEvent, Sha256Topic, Topic};
+use libp2p::gossipsub::{GossipsubEvent, Sha256Topic};
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaEvent, QueryResult};
 use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
@@ -18,14 +18,17 @@ use libp2p::identify::IdentifyEvent;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use warp::data::{DataObject, DataType};
+use warp::data::DataType;
 use warp::pocket_dimension::PocketDimension;
+
+pub type TopicName = String;
 
 #[derive(Debug)]
 pub enum BlinkCommand {
     FindNearest(PeerId),
     Dial(PeerId),
     Subscribe(String),
+    PublishToTopic(TopicName, Sata),
 }
 
 pub struct PeerToPeerService<TLogger: Logger + 'static,
@@ -118,6 +121,22 @@ impl<TLogger: Logger + 'static,
                     service.event_occurred(LogEvent::SubscriptionError(e.to_string()))
                 }
             }
+            BlinkCommand::PublishToTopic(name, sata )=> {
+                let topic = Sha256Topic::new(name);
+                let serialized_result = bincode::serialize(&sata);
+                match serialized_result {
+                    Ok(serialized) => {
+                        if let Err(_) = swarm.behaviour_mut().gossip_sub.publish(topic, serialized) {
+                            let mut log_service = logger.write().await;
+                            (*log_service).event_occurred(LogEvent::ErrorPublishingData);
+                        }
+                    }
+                    Err(_) => {
+                        let mut log_service = logger.write().await;
+                        (*log_service).event_occurred(LogEvent::ErrorSerializingData);
+                    }
+                }
+            }
         }
     }
 
@@ -132,8 +151,15 @@ impl<TLogger: Logger + 'static,
                 match identify {
                     IdentifyEvent::Received { peer_id, info} => {
                         let public_key = info.public_key;
+                        let did_result = libp2p_pub_to_did(&public_key);
+                        if let Err(e) = did_result {
+                            let mut log = logger.write().await;
+                            (*log).event_occurred(LogEvent::ConvertKeyError);
+                        }
 
-
+                        // let ca = cache.read().await;
+                        //
+                        // ca.get_data(DataType::Cache, query)
                     }
                     IdentifyEvent::Sent { .. } => {}
                     IdentifyEvent::Pushed { .. } => {}
@@ -148,12 +174,14 @@ impl<TLogger: Logger + 'static,
                         match data {
                             Ok(info) => {
                                 let mut write = cache.write().await;
-                                // if let Err(e) = write.add_data(DataType::Messaging, info) {
-                                //     println!("Error while writing data to cache");
-                                // }
+                                if let Err(e) = write.add_data(DataType::Messaging, &info) {
+                                    let mut log_service = logger.write().await;
+                                    log_service.event_occurred(LogEvent::ErrorAddingToCache(e));
+                                }
                             }
                             Err(err) => {
-                                println!("Error while deserializing {}", err);
+                                let mut log_service = logger.write().await;
+                                log_service.event_occurred(LogEvent::ErrorDeserializingData);
                             }
                         }
                     }
@@ -254,8 +282,9 @@ mod when_using_peer_to_peer_service {
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::time::Duration;
+    use sata::Sata;
     use tokio::sync::RwLock;
-    use warp::data::{DataObject, DataType};
+    use warp::data::DataType;
     use warp::error::Error;
     use warp::module::Module;
     use warp::pocket_dimension::query::QueryBuilder;
@@ -282,7 +311,7 @@ mod when_using_peer_to_peer_service {
     impl SingleHandle for TestCache {}
 
     impl PocketDimension for TestCache {
-        fn add_data(&mut self, dimension: DataType, data: &DataObject) -> Result<(), Error> {
+        fn add_data(&mut self, dimension: DataType, data: &Sata) -> Result<(), Error> {
             todo!()
         }
 
@@ -294,7 +323,7 @@ mod when_using_peer_to_peer_service {
             &self,
             dimension: DataType,
             query: Option<&QueryBuilder>,
-        ) -> Result<Vec<DataObject>, Error> {
+        ) -> Result<Vec<Sata>, Error> {
             todo!()
         }
 
@@ -437,5 +466,48 @@ mod when_using_peer_to_peer_service {
             }
             false
         });
+    }
+
+    #[tokio::test]
+    async fn message_to_another_client_is_added_to_cache() {
+        const TOPIC_NAME : &str = "SomeTopic";
+        let cancellation_token = Arc::new(AtomicBool::new(false));
+        let mut addr_map = HashMap::new();
+
+        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
+        let second_client_id = identity::Keypair::generate_ed25519();
+        let second_client_peer = PeerId::from(second_client_id.public());
+        let cache =
+            Arc::new(RwLock::new(TestCache::default()));
+        let second_client = PeerToPeerService::new(
+            second_client_id,
+            "/ip4/0.0.0.0/tcp/0",
+            None,
+            cache.clone(),
+            log_handler.clone(),
+            cancellation_token.clone(),
+        )
+            .unwrap();
+
+        second_client.subscribe_to_topic(TOPIC_NAME.to_string());
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let first_client_id = identity::Keypair::generate_ed25519();
+
+        let mut first_client = PeerToPeerService::new(
+            first_client_id,
+            "/ip4/0.0.0.0/tcp/0",
+            Some(addr_map),
+            cache.clone(),
+            log_handler.clone(),
+            cancellation_token.clone(),
+        )
+            .unwrap();
+
+        first_client.subscribe_to_topic(TOPIC_NAME.to_string()).await.unwrap();
+
+        first_client.pair_to_another_peer(second_client_peer).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
