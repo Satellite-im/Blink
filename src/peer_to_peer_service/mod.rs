@@ -1,10 +1,10 @@
+use anyhow::Result;
+use async_trait::async_trait;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
+use libp2p::Multiaddr;
 use sata::Sata;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use anyhow::Result;
-use async_trait::async_trait;
-use libp2p::Multiaddr;
 use warp::crypto::DID;
 use warp::error::Error;
 
@@ -41,19 +41,16 @@ pub enum LogEvent {
     ErrorAddingToCache(Error),
     ErrorDeserializingData,
     ErrorSerializingData,
-    ErrorPublishingData
+    ErrorPublishingData,
 }
 
-pub trait Logger : Send + Sync {
+pub trait Logger: Send + Sync {
     fn event_occurred(&mut self, event: LogEvent);
 }
 
-pub enum Event {
-}
+pub enum Event {}
 
-enum StreamKind {
-
-}
+enum StreamKind {}
 
 #[async_trait]
 pub trait Blink {
