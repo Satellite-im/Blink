@@ -500,6 +500,13 @@ mod when_using_peer_to_peer_service {
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
+        match log_handler.read().await.events.first().unwrap() {
+            LogEvent::NewListenAddr(addr) => {
+                addr_map.insert(second_client_peer, addr.clone());
+            }
+            _ => {}
+        }
+
         let first_client_id = identity::Keypair::generate_ed25519();
 
         let mut first_client = PeerToPeerService::new(
@@ -525,6 +532,8 @@ mod when_using_peer_to_peer_service {
 
         first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default());
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         assert!(log_handler.read().await.events.iter().all(|x| {
             match x {
                 LogEvent::ErrorDeserializingData => {
@@ -534,6 +543,9 @@ mod when_using_peer_to_peer_service {
                     return false;
                 }
                 LogEvent::ErrorPublishingData => {
+                    return false;
+                }
+                LogEvent::DialError(_) => {
                     return false;
                 }
                 _ => {}

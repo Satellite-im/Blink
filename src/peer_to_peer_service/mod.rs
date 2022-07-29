@@ -33,6 +33,7 @@ fn libp2p_pub_to_did(public_key: &libp2p::identity::PublicKey) -> Result<DID> {
     Ok(pk)
 }
 
+#[derive(Debug)]
 pub enum LogEvent {
     DialError(String),
     ConvertKeyError,
