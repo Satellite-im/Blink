@@ -28,26 +28,28 @@ pub enum BlinkCommand {
     Subscribe(String),
 }
 
-pub struct PeerToPeerService<TLogger: Logger + Send + Sync + 'static> {
+pub struct PeerToPeerService<TLogger: Logger + 'static,
+                             TCache: PocketDimension + 'static> {
     command_channel: Sender<BlinkCommand>,
     task_handle: JoinHandle<()>,
-    local_addr: Arc<RwLock<Vec<Multiaddr>>>,
-    cache: Arc<RwLock<Box<dyn PocketDimension>>>,
+    cache: Arc<RwLock<TCache>>,
     logger: Arc<RwLock<TLogger>>,
 }
 
-impl<TLogger: Logger + Send + Sync + 'static> Drop for PeerToPeerService<TLogger> {
+impl<TLogger: Logger + 'static,
+    TCache: PocketDimension + 'static> Drop for PeerToPeerService<TLogger, TCache> {
     fn drop(&mut self) {
         self.task_handle.abort();
     }
 }
 
-impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
+impl<TLogger: Logger + 'static,
+    TCache: PocketDimension + 'static> PeerToPeerService<TLogger, TCache> {
     pub fn new(
         key_pair: Keypair,
         address_to_listen: &str,
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
-        cache: Arc<RwLock<Box<dyn PocketDimension>>>,
+        cache: Arc<RwLock<TCache>>,
         logger: Arc<RwLock<TLogger>>,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
@@ -61,8 +63,6 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         swarm.listen_on(address_to_listen.parse()?)?;
 
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(32);
-        let local_address = Arc::new(RwLock::new(Vec::new()));
-        let thread_addr_to_set = local_address.clone();
         let cache_to_thread = cache.clone();
         let thread_logger = logger.clone();
 
@@ -80,11 +80,7 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
                          }
                      },
                     event = swarm.select_next_some() => {
-                         if let SwarmEvent::Behaviour(_) = event {
-                             Self::handle_behaviour_event(&mut swarm, event, cache_to_thread.clone(), thread_logger.clone()).await;
-                         } else {
-                             Self::handle_event(&mut swarm, event, thread_addr_to_set.clone(), thread_logger.clone()).await;
-                         }
+                         Self::handle_event(&mut swarm, event, cache_to_thread.clone(), thread_logger.clone()).await;
                     }
                 }
             }
@@ -93,7 +89,6 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         Ok(Self {
             command_channel: command_tx,
             task_handle: handler,
-            local_addr: local_address,
             cache,
             logger,
         })
@@ -126,10 +121,10 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
         }
     }
 
-    async fn handle_behaviour_event<TErr>(
+    async fn handle_event<TErr>(
         swarm: &mut Swarm<BlinkBehavior>,
         event: SwarmEvent<BehaviourEvent, TErr>,
-        cache: Arc<RwLock<Box<dyn PocketDimension>>>,
+        cache: Arc<RwLock<TCache>>,
         logger: Arc<RwLock<TLogger>>,
     ) {
         match event {
@@ -193,17 +188,6 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
                 KademliaEvent::RoutablePeer { .. } => {}
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
-            _ => {}
-        }
-    }
-
-    async fn handle_event<TEvent, TErr>(
-        _: &mut Swarm<BlinkBehavior>,
-        event: SwarmEvent<TEvent, TErr>,
-        local_address: Arc<RwLock<Vec<Multiaddr>>>,
-        logger: Arc<RwLock<TLogger>>,
-    ) {
-        match event {
             SwarmEvent::ConnectionEstablished { .. } => {}
             SwarmEvent::ConnectionClosed { .. } => {}
             SwarmEvent::IncomingConnection { .. } => {}
@@ -211,8 +195,8 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
             SwarmEvent::OutgoingConnectionError { .. } => {}
             SwarmEvent::BannedPeer { .. } => {}
             SwarmEvent::NewListenAddr { address, .. } => {
-                let mut write = local_address.write().await;
-                (*write).push(address);
+                let mut log_service = logger.write().await;
+                (*log_service).event_occurred(LogEvent::NewListenAddr(address));
             }
             SwarmEvent::ExpiredListenAddr { .. } => {}
             SwarmEvent::ListenerClosed { .. } => {}
@@ -251,11 +235,6 @@ impl<TLogger: Logger + Send + Sync + 'static> PeerToPeerService<TLogger> {
             .send(BlinkCommand::Subscribe(topic_name))
             .await?;
         Ok(())
-    }
-
-    async fn get_local_address(&self) -> Vec<Multiaddr> {
-        let read = self.local_addr.read().await;
-        read.clone()
     }
 
     async fn pair_to_another_peer(&mut self, peer_id: PeerId) -> Result<()> {
@@ -352,8 +331,8 @@ mod when_using_peer_to_peer_service {
     async fn open_does_not_throw() {
         let id_keys = identity::Keypair::generate_ed25519();
         let cancellation_token = Arc::new(AtomicBool::new(false));
-        let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
-            Arc::new(RwLock::new(Box::new(TestCache::default())));
+        let cache =
+            Arc::new(RwLock::new(TestCache::default()));
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let service = PeerToPeerService::new(
             id_keys,
@@ -365,8 +344,14 @@ mod when_using_peer_to_peer_service {
         )
         .unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let addr = service.get_local_address().await;
-        assert!(addr.len() > 0);
+        let log_service = log_handler.read().await;
+        assert!(log_service.events.iter().all(|x| {
+            if let LogEvent::NewListenAddr(_) = *x {
+                return true;
+            }
+
+            false
+        }));
     }
 
     #[tokio::test]
@@ -377,8 +362,8 @@ mod when_using_peer_to_peer_service {
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let second_client_id = identity::Keypair::generate_ed25519();
         let second_client_peer = PeerId::from(second_client_id.public());
-        let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
-            Arc::new(RwLock::new(Box::new(TestCache::default())));
+        let cache =
+            Arc::new(RwLock::new(TestCache::default()));
         let second_client = PeerToPeerService::new(
             second_client_id,
             "/ip4/0.0.0.0/tcp/0",
@@ -390,8 +375,12 @@ mod when_using_peer_to_peer_service {
         .unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let addr = second_client.get_local_address().await;
-        addr_map.insert(second_client_peer, addr[0].clone());
+        match log_handler.read().await.events.first().unwrap() {
+            LogEvent::NewListenAddr(addr) => {
+                addr_map.insert(second_client_peer, addr.clone());
+            }
+            _ => {}
+        }
 
         let first_client_id = identity::Keypair::generate_ed25519();
 
@@ -408,7 +397,13 @@ mod when_using_peer_to_peer_service {
         first_client.pair_to_another_peer(second_client_peer).await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        assert!(log_handler.read().await.events.is_empty());
+        assert!(log_handler.read().await.events.iter().all(|x| {
+            if let LogEvent::DialError(_) = *x {
+                return false;
+            }
+
+            true
+        }));
     }
 
     #[tokio::test]
@@ -417,8 +412,8 @@ mod when_using_peer_to_peer_service {
 
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let client_id = identity::Keypair::generate_ed25519();
-        let cache: Arc<RwLock<Box<dyn PocketDimension>>> =
-            Arc::new(RwLock::new(Box::new(TestCache::default())));
+        let cache=
+            Arc::new(RwLock::new(TestCache::default()));
         let mut client = PeerToPeerService::new(
             client_id,
             "/ip4/0.0.0.0/tcp/0",
