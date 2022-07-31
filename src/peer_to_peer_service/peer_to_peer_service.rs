@@ -21,6 +21,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use warp::data::DataType;
 use warp::pocket_dimension::PocketDimension;
+use warp::pocket_dimension::query::QueryBuilder;
 
 pub type TopicName = String;
 
@@ -155,14 +156,16 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
                     IdentifyEvent::Received { peer_id, info } => {
                         let public_key = info.public_key;
                         let did_result = libp2p_pub_to_did(&public_key);
-                        if let Err(e) = did_result {
+                        if let Err(_) = did_result {
                             let mut log = logger.write().await;
                             (*log).event_occurred(LogEvent::ConvertKeyError);
                         }
 
-                        // let ca = cache.read().await;
+                        let mut ca = cache.read().await;
+
+                        // if let Ok(sata) = ca.get_data(DataType::Cache, ??) {
                         //
-                        // ca.get_data(DataType::Cache, query)
+                        // }
                     }
                     IdentifyEvent::Sent { .. } => {}
                     IdentifyEvent::Pushed { .. } => {}
@@ -285,12 +288,14 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
 mod when_using_peer_to_peer_service {
     use crate::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
     use crate::peer_to_peer_service::{LogEvent, Logger};
-    use libp2p::{identity, PeerId};
+    use libp2p::{identity, Multiaddr, PeerId};
     use sata::Sata;
     use std::collections::HashMap;
+    use std::hash::Hash;
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::time::Duration;
+    use libp2p::futures::TryFutureExt;
     use tokio::sync::RwLock;
     use warp::data::DataType;
     use warp::error::Error;
@@ -300,7 +305,9 @@ mod when_using_peer_to_peer_service {
     use warp::{Extension, SingleHandle};
 
     #[derive(Default)]
-    struct TestCache {}
+    struct TestCache {
+        data_added: Vec<(DataType, Sata)>,
+    }
 
     impl Extension for TestCache {
         fn id(&self) -> String {
@@ -320,7 +327,8 @@ mod when_using_peer_to_peer_service {
 
     impl PocketDimension for TestCache {
         fn add_data(&mut self, dimension: DataType, data: &Sata) -> Result<(), Error> {
-            todo!()
+            self.data_added.push((dimension, data.clone()));
+            Ok(())
         }
 
         fn has_data(&mut self, dimension: DataType, query: &QueryBuilder) -> Result<(), Error> {
@@ -364,21 +372,41 @@ mod when_using_peer_to_peer_service {
         }
     }
 
-    #[tokio::test]
-    async fn open_does_not_throw() {
+    fn create_service(initial_address: HashMap<PeerId, Multiaddr>)
+        -> (PeerToPeerService<LogHandler, TestCache>, Arc<RwLock<LogHandler>>, PeerId, Arc<RwLock<TestCache>>) {
         let id_keys = identity::Keypair::generate_ed25519();
+        let peer_id = PeerId::from(id_keys.public());
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let cache = Arc::new(RwLock::new(TestCache::default()));
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
         let service = PeerToPeerService::new(
             id_keys,
             "/ip4/0.0.0.0/tcp/0",
-            None,
+            Some(initial_address),
             cache.clone(),
             log_handler.clone(),
             cancellation_token.clone(),
         )
-        .unwrap();
+            .unwrap();
+
+        (service, log_handler, peer_id, cache)
+    }
+
+    async fn get_address_from_service(peer_id: PeerId, log_handler: Arc<RwLock<LogHandler>>) -> HashMap<PeerId, Multiaddr> {
+        let mut addr_map = HashMap::new();
+        match log_handler.read().await.events.first().unwrap() {
+            LogEvent::NewListenAddr(addr) => {
+                addr_map.insert(peer_id, addr.clone());
+            }
+            _ => {}
+        }
+
+        addr_map
+    }
+
+    #[tokio::test]
+    async fn open_does_not_throw() {
+        let (_, mut log_handler, _, _) = create_service(HashMap::new());
         tokio::time::sleep(Duration::from_secs(1)).await;
         let log_service = log_handler.read().await;
         assert!(log_service.events.iter().all(|x| {
@@ -392,47 +420,21 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
-        let cancellation_token = Arc::new(AtomicBool::new(false));
-        let mut addr_map = HashMap::new();
-
-        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
-        let second_client_id = identity::Keypair::generate_ed25519();
-        let second_client_peer = PeerId::from(second_client_id.public());
-        let cache = Arc::new(RwLock::new(TestCache::default()));
-        let second_client = PeerToPeerService::new(
-            second_client_id,
-            "/ip4/0.0.0.0/tcp/0",
-            None,
-            cache.clone(),
-            log_handler.clone(),
-            cancellation_token.clone(),
-        )
-        .unwrap();
+        let (mut second_client, mut log_handler, peer_id, _)
+            = create_service(HashMap::new());
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        match log_handler.read().await.events.first().unwrap() {
-            LogEvent::NewListenAddr(addr) => {
-                addr_map.insert(second_client_peer, addr.clone());
-            }
-            _ => {}
-        }
 
-        let first_client_id = identity::Keypair::generate_ed25519();
+        let addr_map = get_address_from_service(peer_id.clone(), log_handler.clone()).await;
 
-        let mut first_client = PeerToPeerService::new(
-            first_client_id,
-            "/ip4/0.0.0.0/tcp/0",
-            Some(addr_map),
-            cache.clone(),
-            log_handler.clone(),
-            cancellation_token.clone(),
-        )
-        .unwrap();
+        let (mut first_client, mut first_client_logger, _, _)
+            = create_service(addr_map);
 
         first_client
-            .pair_to_another_peer(second_client_peer)
+            .pair_to_another_peer(peer_id)
             .await
             .unwrap();
+
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         assert!(log_handler.read().await.events.iter().all(|x| {
@@ -446,20 +448,7 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn subscribe_to_topic_does_not_cause_errors() {
-        let cancellation_token = Arc::new(AtomicBool::new(false));
-
-        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
-        let client_id = identity::Keypair::generate_ed25519();
-        let cache = Arc::new(RwLock::new(TestCache::default()));
-        let mut client = PeerToPeerService::new(
-            client_id,
-            "/ip4/0.0.0.0/tcp/0",
-            None,
-            cache.clone(),
-            log_handler.clone(),
-            cancellation_token.clone(),
-        )
-        .unwrap();
+        let (mut client, mut log_handler, _, _) = create_service(HashMap::new());
 
         client
             .subscribe_to_topic("some channel".to_string())
@@ -479,45 +468,15 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
-        let cancellation_token = Arc::new(AtomicBool::new(false));
-        let mut addr_map = HashMap::new();
+        let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache) = create_service(HashMap::new());
 
-        let log_handler = Arc::new(RwLock::new(LogHandler::new()));
-        let second_client_id = identity::Keypair::generate_ed25519();
-        let second_client_peer = PeerId::from(second_client_id.public());
-        let cache = Arc::new(RwLock::new(TestCache::default()));
-        let second_client = PeerToPeerService::new(
-            second_client_id,
-            "/ip4/0.0.0.0/tcp/0",
-            None,
-            cache.clone(),
-            log_handler.clone(),
-            cancellation_token.clone(),
-        )
-        .unwrap();
-
-        second_client.subscribe_to_topic(TOPIC_NAME.to_string());
+        second_client.subscribe_to_topic(TOPIC_NAME.to_string()).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        match log_handler.read().await.events.first().unwrap() {
-            LogEvent::NewListenAddr(addr) => {
-                addr_map.insert(second_client_peer, addr.clone());
-            }
-            _ => {}
-        }
+        let second_client_address = get_address_from_service(second_client_peer_id, log_handler.clone()).await;
 
-        let first_client_id = identity::Keypair::generate_ed25519();
-
-        let mut first_client = PeerToPeerService::new(
-            first_client_id,
-            "/ip4/0.0.0.0/tcp/0",
-            Some(addr_map),
-            cache.clone(),
-            log_handler.clone(),
-            cancellation_token.clone(),
-        )
-        .unwrap();
+        let (mut first_client, mut first_client_log_handler, first_client_peer_id, first_client_cache) = create_service(second_client_address);
 
         first_client
             .subscribe_to_topic(TOPIC_NAME.to_string())
@@ -525,12 +484,13 @@ mod when_using_peer_to_peer_service {
             .unwrap();
 
         first_client
-            .pair_to_another_peer(second_client_peer)
+            .pair_to_another_peer(second_client_peer_id)
             .await
             .unwrap();
+
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default());
+        first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default()).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -553,5 +513,8 @@ mod when_using_peer_to_peer_service {
 
             true
         }));
+
+        let cache_read = second_client_cache.read().await;
+        let (data_type_added, data_added) = (*cache_read).data_added.first().unwrap();
     }
 }
