@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, PeerId};
 use sata::Sata;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -44,6 +44,8 @@ pub enum LogEvent {
     ErrorSerializingData,
     ErrorPublishingData,
     FailureToIdentifyPeer,
+    FailureToDisconnectPeer,
+    PeerConnectionClosed(PeerId),
 }
 
 pub trait Logger: Send + Sync {
@@ -65,7 +67,7 @@ pub trait Blink {
     // Allows developers to listen in on communications and hook data they care about
     fn hook(event: Event);
     // Send data directly to another peer(s)
-    fn send(peers: Vec<DID>, data: Sata) -> Result<()>;
+    fn send(data: Sata) -> Result<()>;
     // Stream data to another peer(s)
     // fn stream(peers: Vec<DIDKey>, kind: StreamKind, stream: Box<dyn Stream>) -> Result<()>;
     // // aliases
