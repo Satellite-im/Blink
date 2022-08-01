@@ -43,6 +43,7 @@ pub enum LogEvent {
     ErrorDeserializingData,
     ErrorSerializingData,
     ErrorPublishingData,
+    FailureToIdentifyPeer,
 }
 
 pub trait Logger: Send + Sync {

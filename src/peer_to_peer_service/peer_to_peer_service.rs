@@ -1,6 +1,7 @@
 use crate::peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior};
 use crate::peer_to_peer_service::{libp2p_pub_to_did, CancellationToken, LogEvent, Logger};
 use anyhow::Result;
+use bincode::serialize;
 use libp2p::core::transport::upgrade;
 use libp2p::futures::StreamExt;
 use libp2p::gossipsub::{GossipsubEvent, Sha256Topic};
@@ -15,13 +16,14 @@ use sata::Sata;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use bincode::serialize;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use warp::data::DataType;
-use warp::pocket_dimension::PocketDimension;
+use warp::multipass::identity::Identifier;
+use warp::multipass::MultiPass;
 use warp::pocket_dimension::query::QueryBuilder;
+use warp::pocket_dimension::PocketDimension;
 
 pub type TopicName = String;
 
@@ -33,29 +35,41 @@ pub enum BlinkCommand {
     PublishToTopic(TopicName, Sata),
 }
 
-pub struct PeerToPeerService<TLogger: Logger + 'static, TCache: PocketDimension + 'static> {
+pub struct PeerToPeerService<
+    TLogger: Logger + 'static,
+    TCache: PocketDimension + 'static,
+    TMultiPass: MultiPass + 'static,
+> {
     command_channel: Sender<BlinkCommand>,
     task_handle: JoinHandle<()>,
     cache: Arc<RwLock<TCache>>,
     logger: Arc<RwLock<TLogger>>,
+    multi_pass: Arc<RwLock<TMultiPass>>,
 }
 
-impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static> Drop
-    for PeerToPeerService<TLogger, TCache>
+impl<
+        TLogger: Logger + 'static,
+        TCache: PocketDimension + 'static,
+        TMultiPass: MultiPass + 'static,
+    > Drop for PeerToPeerService<TLogger, TCache, TMultiPass>
 {
     fn drop(&mut self) {
         self.task_handle.abort();
     }
 }
 
-impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
-    PeerToPeerService<TLogger, TCache>
+impl<
+        TLogger: Logger + 'static,
+        TCache: PocketDimension + 'static,
+        TMultiPass: MultiPass + 'static,
+    > PeerToPeerService<TLogger, TCache, TMultiPass>
 {
     pub fn new(
         key_pair: Keypair,
         address_to_listen: &str,
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
         cache: Arc<RwLock<TCache>>,
+        multi_pass: Arc<RwLock<TMultiPass>>,
         logger: Arc<RwLock<TLogger>>,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
@@ -71,6 +85,7 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(32);
         let cache_to_thread = cache.clone();
         let thread_logger = logger.clone();
+        let multi_pass_thread = multi_pass.clone();
 
         let handler = tokio::spawn(async move {
             loop {
@@ -86,7 +101,7 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
                          }
                      },
                     event = swarm.select_next_some() => {
-                         Self::handle_event(&mut swarm, event, cache_to_thread.clone(), thread_logger.clone()).await;
+                         Self::handle_event(&mut swarm, event, cache_to_thread.clone(), thread_logger.clone(), multi_pass_thread.clone()).await;
                     }
                 }
             }
@@ -97,6 +112,7 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
             task_handle: handler,
             cache,
             logger,
+            multi_pass,
         })
     }
 
@@ -149,29 +165,31 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
         event: SwarmEvent<BehaviourEvent, TErr>,
         cache: Arc<RwLock<TCache>>,
         logger: Arc<RwLock<TLogger>>,
+        multi_pass: Arc<RwLock<TMultiPass>>,
     ) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => {
-                match identify {
-                    IdentifyEvent::Received { peer_id, info } => {
-                        let public_key = info.public_key;
-                        let did_result = libp2p_pub_to_did(&public_key);
-                        if let Err(_) = did_result {
-                            let mut log = logger.write().await;
-                            (*log).event_occurred(LogEvent::ConvertKeyError);
-                        }
-
-                        let mut ca = cache.read().await;
-
-                        // if let Ok(sata) = ca.get_data(DataType::Cache, ??) {
-                        //
-                        // }
+            SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => match identify {
+                IdentifyEvent::Received { peer_id, info } => {
+                    let public_key = info.public_key;
+                    let did_result = libp2p_pub_to_did(&public_key);
+                    if let Err(_) = did_result {
+                        let mut log = logger.write().await;
+                        (*log).event_occurred(LogEvent::ConvertKeyError);
                     }
-                    IdentifyEvent::Sent { .. } => {}
-                    IdentifyEvent::Pushed { .. } => {}
-                    IdentifyEvent::Error { .. } => {}
+
+                    let multi_pass_read = multi_pass.read().await;
+
+                    if let Err(e) =
+                        (*multi_pass_read).get_identity(Identifier::from(did_result.unwrap()))
+                    {
+                        let mut log = logger.write().await;
+                        (*log).event_occurred(LogEvent::FailureToIdentifyPeer);
+                    }
                 }
-            }
+                IdentifyEvent::Sent { .. } => {}
+                IdentifyEvent::Pushed { .. } => {}
+                IdentifyEvent::Error { .. } => {}
+            },
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => match gsp {
                 GossipsubEvent::Message { message, .. } => {
                     let message_data = message.data;
@@ -287,7 +305,8 @@ impl<TLogger: Logger + 'static, TCache: PocketDimension + 'static>
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
     use crate::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
-    use crate::peer_to_peer_service::{LogEvent, Logger};
+    use crate::peer_to_peer_service::{libp2p_pub_to_did, LogEvent, Logger};
+    use libp2p::futures::TryFutureExt;
     use libp2p::{identity, Multiaddr, PeerId};
     use sata::Sata;
     use std::collections::HashMap;
@@ -295,11 +314,13 @@ mod when_using_peer_to_peer_service {
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::time::Duration;
-    use libp2p::futures::TryFutureExt;
     use tokio::sync::RwLock;
+    use warp::crypto::DID;
     use warp::data::DataType;
     use warp::error::Error;
     use warp::module::Module;
+    use warp::multipass::identity::{Identifier, Identity, IdentityUpdate};
+    use warp::multipass::{Friends, MultiPass};
     use warp::pocket_dimension::query::QueryBuilder;
     use warp::pocket_dimension::PocketDimension;
     use warp::{Extension, SingleHandle};
@@ -307,6 +328,54 @@ mod when_using_peer_to_peer_service {
     #[derive(Default)]
     struct TestCache {
         data_added: Vec<(DataType, Sata)>,
+    }
+
+    #[derive(Default)]
+    struct MultiPassImpl {
+    }
+
+    impl Extension for MultiPassImpl {
+        fn id(&self) -> String {
+            todo!()
+        }
+
+        fn name(&self) -> String {
+            todo!()
+        }
+
+        fn module(&self) -> Module {
+            todo!()
+        }
+    }
+
+    impl Friends for MultiPassImpl {}
+
+    impl SingleHandle for MultiPassImpl {}
+
+    impl MultiPass for MultiPassImpl {
+        fn create_identity(
+            &mut self,
+            username: Option<&str>,
+            passphrase: Option<&str>,
+        ) -> Result<DID, Error> {
+            todo!()
+        }
+
+        fn get_identity(&self, id: Identifier) -> Result<Identity, Error> {
+            Err(Error::IdentityDoesntExist)
+        }
+
+        fn update_identity(&mut self, option: IdentityUpdate) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn decrypt_private_key(&self, passphrase: Option<&str>) -> Result<Vec<u8>, Error> {
+            todo!()
+        }
+
+        fn refresh_cache(&mut self) -> Result<(), Error> {
+            todo!()
+        }
     }
 
     impl Extension for TestCache {
@@ -372,27 +441,40 @@ mod when_using_peer_to_peer_service {
         }
     }
 
-    fn create_service(initial_address: HashMap<PeerId, Multiaddr>)
-        -> (PeerToPeerService<LogHandler, TestCache>, Arc<RwLock<LogHandler>>, PeerId, Arc<RwLock<TestCache>>) {
+    fn create_service(
+        initial_address: HashMap<PeerId, Multiaddr>,
+    ) -> (
+        PeerToPeerService<LogHandler, TestCache, MultiPassImpl>,
+        Arc<RwLock<LogHandler>>,
+        PeerId,
+        Arc<RwLock<TestCache>>,
+        Arc<RwLock<MultiPassImpl>>,
+        DID) {
         let id_keys = identity::Keypair::generate_ed25519();
+        let did_key = libp2p_pub_to_did(&id_keys.public()).unwrap();
         let peer_id = PeerId::from(id_keys.public());
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let cache = Arc::new(RwLock::new(TestCache::default()));
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
+        let multi_pass = Arc::new(RwLock::new(MultiPassImpl::default()));
         let service = PeerToPeerService::new(
             id_keys,
             "/ip4/0.0.0.0/tcp/0",
             Some(initial_address),
             cache.clone(),
+            multi_pass.clone(),
             log_handler.clone(),
             cancellation_token.clone(),
         )
-            .unwrap();
+        .unwrap();
 
-        (service, log_handler, peer_id, cache)
+        (service, log_handler, peer_id, cache, multi_pass, did_key)
     }
 
-    async fn get_address_from_service(peer_id: PeerId, log_handler: Arc<RwLock<LogHandler>>) -> HashMap<PeerId, Multiaddr> {
+    async fn get_address_from_service(
+        peer_id: PeerId,
+        log_handler: Arc<RwLock<LogHandler>>,
+    ) -> HashMap<PeerId, Multiaddr> {
         let mut addr_map = HashMap::new();
         match log_handler.read().await.events.first().unwrap() {
             LogEvent::NewListenAddr(addr) => {
@@ -406,7 +488,7 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn open_does_not_throw() {
-        let (_, mut log_handler, _, _) = create_service(HashMap::new());
+        let (_, mut log_handler, _, _, _, _) = create_service(HashMap::new());
         tokio::time::sleep(Duration::from_secs(1)).await;
         let log_service = log_handler.read().await;
         assert!(log_service.events.iter().all(|x| {
@@ -420,20 +502,15 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
-        let (mut second_client, mut log_handler, peer_id, _)
-            = create_service(HashMap::new());
+        let (mut second_client, mut log_handler, peer_id, _, _, _) = create_service(HashMap::new());
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let addr_map = get_address_from_service(peer_id.clone(), log_handler.clone()).await;
 
-        let (mut first_client, mut first_client_logger, _, _)
-            = create_service(addr_map);
+        let (mut first_client, mut first_client_logger, _, _, _, _) = create_service(addr_map);
 
-        first_client
-            .pair_to_another_peer(peer_id)
-            .await
-            .unwrap();
+        first_client.pair_to_another_peer(peer_id).await.unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -448,7 +525,7 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn subscribe_to_topic_does_not_cause_errors() {
-        let (mut client, mut log_handler, _, _) = create_service(HashMap::new());
+        let (mut client, mut log_handler, _, _, _, _) = create_service(HashMap::new());
 
         client
             .subscribe_to_topic("some channel".to_string())
@@ -468,15 +545,27 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
-        let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache) = create_service(HashMap::new());
+        let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache, _, _) =
+            create_service(HashMap::new());
 
-        second_client.subscribe_to_topic(TOPIC_NAME.to_string()).await.unwrap();
+        second_client
+            .subscribe_to_topic(TOPIC_NAME.to_string())
+            .await
+            .unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let second_client_address = get_address_from_service(second_client_peer_id, log_handler.clone()).await;
+        let second_client_address =
+            get_address_from_service(second_client_peer_id, log_handler.clone()).await;
 
-        let (mut first_client, mut first_client_log_handler, first_client_peer_id, first_client_cache) = create_service(second_client_address);
+        let (
+            mut first_client,
+            mut first_client_log_handler,
+            first_client_peer_id,
+            first_client_cache,
+            _,
+            _
+        ) = create_service(second_client_address);
 
         first_client
             .subscribe_to_topic(TOPIC_NAME.to_string())
@@ -490,7 +579,10 @@ mod when_using_peer_to_peer_service {
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default()).await.unwrap();
+        first_client
+            .publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default())
+            .await
+            .unwrap();
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -516,5 +608,48 @@ mod when_using_peer_to_peer_service {
 
         let cache_read = second_client_cache.read().await;
         let (data_type_added, data_added) = (*cache_read).data_added.first().unwrap();
+    }
+
+    #[tokio::test]
+    async fn failure_to_identify_peer_causes_error() {
+        let (
+            mut first_client,
+            mut log_handler_first_client,
+            first_client_peer_id,
+            first_client_cache,
+            first_client_multi_pass,
+            first_client_did_key
+        ) = create_service(HashMap::new());
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let first_client_address =
+            get_address_from_service(first_client_peer_id, log_handler_first_client.clone()).await;
+
+        let (
+            mut second_client,
+            mut log_handler_second_client,
+            second_client_peer_id,
+            second_client_cache,
+            second_client_multi_pass,
+            second_client_did_key
+        ) = create_service(first_client_address);
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        second_client.pair_to_another_peer(first_client_peer_id).await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let log_handler_read = log_handler_second_client.read().await;
+        let mut found_error = false;
+
+        for event in &(*log_handler_read).events {
+            if let LogEvent::FailureToIdentifyPeer = event {
+                found_error = true;
+            }
+        }
+
+        assert!(found_error);
     }
 }
