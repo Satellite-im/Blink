@@ -27,7 +27,7 @@ pub struct DataFragment {
     pub data: String,
     /// Is a stream is available for this data partial
     pub stream: bool,
-    /// Represents wether the referenced stream is still alive
+    /// Represents whether the referenced stream is still alive
     alive: bool,
 }
 

@@ -7,7 +7,7 @@ Real-time Data ([RTD](https://en.wikipedia.org/wiki/Real-time_data)) will always
 
 Blink supports updating the DataFragment through the `set_data` function, however you should **never** mutate the fragment directly. The CID will remain the same for data that has been updated, but the version will be bumped every time it's mutated. Additionally the timestamp is updated any time a mutation occurs within the fragment.
 
-Streams will generate the CID based on the first blob of data recieved. This will be used as a pointer to access the data stream later, consider the DataFragment as a notice that live data is ready for you to consume. You can access it through the [Oracle](https://tbd.tbd), using the `stream` method, passing in the CID.
+Streams will generate the CID based on the first blob of data received. This will be used as a pointer to access the data stream later, consider the DataFragment as a notice that live data is ready for you to consume. You can access it through the [Oracle](https://tbd.tbd), using the `stream` method, passing in the CID.
 
 Fragments will be emitted to designated peers on the network thus it's crutial for us to maintain a strict data standard. It is recommended that the serialized data is also standardized wherever it's being generated.
 
