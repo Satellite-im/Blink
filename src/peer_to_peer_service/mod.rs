@@ -22,6 +22,11 @@ fn did_to_libp2p_pub(public_key: &DID) -> Result<libp2p::identity::PublicKey> {
     Ok(pk)
 }
 
+fn did_keypair_to_libp2p_keypair(key_pair: &did_key::KeyPair) -> Result<libp2p::identity::Keypair> {
+    let result = libp2p::identity::Keypair::from_protobuf_encoding(&key_pair.private_key_bytes())?;
+    Ok(result)
+}
+
 fn libp2p_pub_to_did(public_key: &libp2p::identity::PublicKey) -> Result<DID> {
     let pk = match public_key {
         libp2p::identity::PublicKey::Ed25519(pk) => {
@@ -43,6 +48,7 @@ pub enum LogEvent {
     ErrorDeserializingData,
     ErrorSerializingData,
     ErrorPublishingData,
+    SubscribedToTopic(String),
     FailureToIdentifyPeer,
     FailureToDisconnectPeer,
     PeerConnectionClosed(PeerId),
