@@ -76,7 +76,7 @@ impl<
     > PeerToPeerService<TLogger, TCache, TMultiPass>
 {
     pub async fn new(
-        key_pair: Keypair,
+        key_pair: &Keypair,
         address_to_listen: &str,
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
         cache: Arc<RwLock<TCache>>,
@@ -85,7 +85,8 @@ impl<
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let pub_key = key_pair.public();
-        let mut swarm = Self::create_swarm(key_pair).await?;
+        let peer_id = PeerId::from(&pub_key);
+        let mut swarm = Self::create_swarm(key_pair, &peer_id).await?;
         if let Some(initial_address) = initial_known_address {
             for (peer, addr) in initial_address {
                 swarm.behaviour_mut().kademlia.add_address(&peer, addr);
@@ -119,19 +120,13 @@ impl<
             }
         });
 
-        let mut peer_to_peer_service = Self {
+        Ok( Self {
             command_channel: command_tx,
             task_handle: handler,
             cache,
             logger,
             multi_pass,
-        };
-
-        peer_to_peer_service
-            .subscribe_to_topic(base64::encode(pub_key.to_peer_id().to_bytes()))
-            .await?;
-
-        Ok(peer_to_peer_service)
+        })
     }
 
     async fn handle_command(
@@ -303,10 +298,8 @@ impl<
         }
     }
 
-    async fn create_swarm(key_pair: Keypair) -> Result<Swarm<BlinkBehavior>> {
-        let peer_id = PeerId::from(&key_pair.public());
+    async fn create_swarm(key_pair: &Keypair, peer_id: &PeerId) -> Result<Swarm<BlinkBehavior>> {
         let blink_behaviour = BlinkBehavior::new(&key_pair).await?;
-
         // Create a keypair for authenticated encryption of the transport.
         let noise_keys = noise::Keypair::<noise::X25519Spec>::new().into_authentic(&key_pair)?;
 
@@ -318,7 +311,7 @@ impl<
             .multiplex(mplex::MplexConfig::new())
             .boxed();
 
-        let swarm = SwarmBuilder::new(transport, blink_behaviour, peer_id)
+        let swarm = SwarmBuilder::new(transport, blink_behaviour, peer_id.clone())
             .executor(Box::new(|fut| {
                 tokio::spawn(fut);
             }))
@@ -524,7 +517,7 @@ mod when_using_peer_to_peer_service {
             pass_multi_pass_validation_requests,
         )));
         let service = PeerToPeerService::new(
-            id_keys,
+            &id_keys,
             "/ip4/0.0.0.0/tcp/0",
             Some(initial_address),
             cache.clone(),
