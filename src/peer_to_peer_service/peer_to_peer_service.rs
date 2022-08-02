@@ -23,6 +23,7 @@ use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc},
 };
+use libp2p::mdns::MdnsEvent;
 use tokio::{
     sync::{mpsc::Sender, RwLock},
     task::JoinHandle,
@@ -84,7 +85,7 @@ impl<
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let pub_key = key_pair.public();
-        let mut swarm = Self::create_swarm(key_pair)?;
+        let mut swarm = Self::create_swarm(key_pair).await?;
         if let Some(initial_address) = initial_known_address {
             for (peer, addr) in initial_address {
                 swarm.behaviour_mut().kademlia.add_address(&peer, addr);
@@ -151,8 +152,7 @@ impl<
                 }
             }
             BlinkCommand::Subscribe(address) => {
-                let topic = Sha256Topic::new(&address);
-                if let Err(e) = swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
+                if let Err(e) = swarm.behaviour_mut().gossip_sub.subscribe(address.clone()) {
                     let mut service = logger.write().await;
                     service.event_occurred(LogEvent::SubscriptionError(e.to_string()))
                 } else {
@@ -161,11 +161,10 @@ impl<
                 }
             }
             BlinkCommand::PublishToTopic(name, sata) => {
-                let topic = Sha256Topic::new(name);
                 let serialized_result = bincode::serialize(&sata);
                 match serialized_result {
                     Ok(serialized) => {
-                        if let Err(_) = swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
+                        if let Err(_) = swarm.behaviour_mut().gossip_sub.publish(name, serialized)
                         {
                             let mut log_service = logger.write().await;
                             (*log_service).event_occurred(LogEvent::ErrorPublishingData);
@@ -188,6 +187,20 @@ impl<
         multi_pass: Arc<RwLock<TMultiPass>>,
     ) {
         match event {
+            SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(event)) => match event {
+                MdnsEvent::Discovered(list) => {
+                    for (peer, _) in list {
+                        swarm.behaviour_mut().gossip_sub.add_explicit_peer(&peer);
+                    }
+                }
+                MdnsEvent::Expired(list) => {
+                    for (peer, _) in list {
+                        if !swarm.behaviour().mdns.has_node(&peer) {
+                            swarm.behaviour_mut().gossip_sub.remove_explicit_peer(&peer);
+                        }
+                    }
+                }
+            }
             SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => match identify {
                 IdentifyEvent::Received { peer_id, info } => {
                     let public_key = info.public_key;
@@ -290,9 +303,9 @@ impl<
         }
     }
 
-    fn create_swarm(key_pair: Keypair) -> Result<Swarm<BlinkBehavior>> {
+    async fn create_swarm(key_pair: Keypair) -> Result<Swarm<BlinkBehavior>> {
         let peer_id = PeerId::from(&key_pair.public());
-        let blink_behaviour = BlinkBehavior::new(&key_pair)?;
+        let blink_behaviour = BlinkBehavior::new(&key_pair).await?;
 
         // Create a keypair for authenticated encryption of the transport.
         let noise_keys = noise::Keypair::<noise::X25519Spec>::new().into_authentic(&key_pair)?;
@@ -601,7 +614,7 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
-        let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache, _, _) =
+        let (mut second_client, log_handler, second_client_peer_id, second_client_cache, _, _) =
             create_service(HashMap::new(), true).await;
 
         second_client
@@ -616,7 +629,7 @@ mod when_using_peer_to_peer_service {
 
         let (
             mut first_client,
-            mut first_client_log_handler,
+            first_client_log_handler,
             first_client_peer_id,
             first_client_cache,
             _,
@@ -669,7 +682,7 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn failure_to_identify_peer_causes_error() {
         let (
-            mut first_client,
+            first_client,
             mut log_handler_first_client,
             first_client_peer_id,
             first_client_cache,
@@ -723,7 +736,7 @@ mod when_using_peer_to_peer_service {
             .await
             .unwrap();
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         let second_client_address =
             get_address_from_service(second_client_peer_id, log_handler.clone()).await;
@@ -738,11 +751,6 @@ mod when_using_peer_to_peer_service {
         ) = create_service(second_client_address, true).await;
 
         first_client
-            .subscribe_to_topic(TOPIC_NAME.to_string())
-            .await
-            .unwrap();
-
-        first_client
             .pair_to_another_peer(second_client_peer_id)
             .await
             .unwrap();
@@ -752,8 +760,9 @@ mod when_using_peer_to_peer_service {
         let log_handler_read = first_client_log_handler.read().await;
 
         let mut connection_to_be_disconnected_found = false;
+        let events = &(*log_handler_read).events;
 
-        for i in &(*log_handler_read).events {
+        for i in events {
             if let LogEvent::PeerConnectionClosed(peer) = i {
                 if *peer == second_client_peer_id {
                     connection_to_be_disconnected_found = true;

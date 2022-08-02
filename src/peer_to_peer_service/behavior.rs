@@ -1,51 +1,45 @@
 use anyhow::{anyhow, Result};
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
 use libp2p::{
-    gossipsub::{
-        Gossipsub, GossipsubConfigBuilder, GossipsubEvent, MessageAuthenticity, MessageId,
-        ValidationMode,
-    },
+    gossipsub::ValidationMode,
     identity::Keypair,
     kad::store::MemoryStore,
-    kad::{Kademlia, KademliaConfig, KademliaEvent},
-    relay::v2::{
-        relay,
-        relay::{Event, Relay},
-    },
-    NetworkBehaviour, PeerId,
+    kad::Kademlia,
+    kad::KademliaConfig,
+    kad::KademliaEvent,
+    relay::v2::relay::Event,
+    relay::v2::relay::Relay,
+    NetworkBehaviour,
+    PeerId,
+    identify::Identify,
+    identify::IdentifyConfig,
+    identify::IdentifyEvent,
+    mdns::Mdns,
+    mdns::MdnsEvent
 };
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     time::Duration,
 };
+use libp2p::gossipsub::GossipsubEvent;
+use libp2p_helper::gossipsub::GossipsubStream;
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = false, out_event = "BehaviourEvent")]
 pub(crate) struct BlinkBehavior {
-    pub(crate) gossip_sub: Gossipsub,
+    pub(crate) gossip_sub: GossipsubStream,
     pub(crate) kademlia: Kademlia<MemoryStore>,
     pub(crate) identity: Identify,
     pub(crate) relay: Relay,
+    pub(crate) mdns: Mdns,
 }
 
 impl BlinkBehavior {
-    pub(crate) fn new(key_pair: &Keypair) -> Result<Self> {
+    pub(crate) async fn new(key_pair: &Keypair) -> Result<Self> {
         let peer_id = PeerId::from(&key_pair.public());
-        let gossip_config = GossipsubConfigBuilder::default()
-            .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
-            .validation_mode(ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
-            .message_id_fn(|message| {
-                // To content-address message, we can take the hash of message and use it as an ID.
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                MessageId::from(s.finish().to_string())
-            }) // content-address messages. No two messages of the
-            // same content will be propagated.
-            .build()
-            .map_err(|x| anyhow!(x))?;
+        let mdns = Mdns::new(Default::default()).await?;
 
         let relay = Relay::new(peer_id, Default::default());
         // Create a Kademlia behaviour.
@@ -53,9 +47,9 @@ impl BlinkBehavior {
         kademlia_cfg.set_query_timeout(Duration::from_secs(5 * 60));
         let store = MemoryStore::new(peer_id.clone());
         let kademlia = Kademlia::with_config(peer_id.clone(), store, kademlia_cfg);
-        let gossip_sub: Gossipsub =
-            Gossipsub::new(MessageAuthenticity::Signed(key_pair.clone()), gossip_config)
-                .map_err(|x| anyhow!(x))?;
+        let gossip_sub =
+            GossipsubStream::new(key_pair.clone())
+                .map_err(|err| anyhow!(err))?;
 
         let identity = Identify::new(IdentifyConfig::new(
             IDENTIFY_PROTOCOL_VERSION.into(),
@@ -67,6 +61,7 @@ impl BlinkBehavior {
             kademlia,
             relay,
             identity,
+            mdns
         })
     }
 }
@@ -77,6 +72,13 @@ pub(crate) enum BehaviourEvent {
     RelayEvent(Event),
     KademliaEvent(KademliaEvent),
     IdentifyEvent(IdentifyEvent),
+    MdnsEvent(MdnsEvent)
+}
+
+impl From<MdnsEvent> for BehaviourEvent {
+    fn from(event: MdnsEvent) -> Self {
+        BehaviourEvent::MdnsEvent(event)
+    }
 }
 
 impl From<IdentifyEvent> for BehaviourEvent {
