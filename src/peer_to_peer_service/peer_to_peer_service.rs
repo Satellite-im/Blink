@@ -1,9 +1,11 @@
+use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
 use crate::{
     peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior},
     peer_to_peer_service::{libp2p_pub_to_did, CancellationToken, LogEvent, Logger},
 };
 use anyhow::Result;
 use bincode::serialize;
+use libp2p::gossipsub::{Hasher, Topic};
 use libp2p::{
     core::transport::upgrade,
     futures::StreamExt,
@@ -21,19 +23,17 @@ use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc},
 };
-use libp2p::gossipsub::{Hasher, Topic};
 use tokio::{
     sync::{mpsc::Sender, RwLock},
     task::JoinHandle,
 };
+use warp::crypto::ed25519_dalek::{PublicKey, SignatureError};
+use warp::crypto::DID;
 use warp::{
     data::DataType,
     multipass::{identity::Identifier, MultiPass},
     pocket_dimension::{query::QueryBuilder, PocketDimension},
 };
-use warp::crypto::DID;
-use warp::crypto::ed25519_dalek::{PublicKey, SignatureError};
-use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
 
 pub type TopicName = String;
 
@@ -126,7 +126,9 @@ impl<
             multi_pass,
         };
 
-        peer_to_peer_service.subscribe_to_topic(base64::encode(pub_key.to_peer_id().to_bytes())).await?;
+        peer_to_peer_service
+            .subscribe_to_topic(base64::encode(pub_key.to_peer_id().to_bytes()))
+            .await?;
 
         Ok(peer_to_peer_service)
     }
@@ -336,41 +338,31 @@ impl<
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
+    use crate::peer_to_peer_service::did_to_libp2p_pub;
     use crate::{
         peer_to_peer_service::peer_to_peer_service::PeerToPeerService,
-        peer_to_peer_service::{libp2p_pub_to_did, LogEvent, Logger}
-    };
-    use libp2p::{
-        futures::TryFutureExt,
-        identity,
-        Multiaddr,
-        PeerId
-    };
-    use sata::Sata;
-    use std::{
-        sync::atomic::AtomicBool,
-        ops::Mul,
-        hash::Hash,
-        collections::HashMap,
-        sync::Arc,
-        time::Duration
+        peer_to_peer_service::{libp2p_pub_to_did, LogEvent, Logger},
     };
     use did_key::Ed25519KeyPair;
-    use tokio::sync::RwLock;
-    use warp::{
-        pocket_dimension::query::QueryBuilder,
-        multipass::{Friends, MultiPass},
-        multipass::identity::{Identifier, Identity, IdentityUpdate},
-        module::Module,
-        error::Error,
-        data::DataType,
-        crypto::DID,
-        pocket_dimension::PocketDimension,
-        Extension,
-        SingleHandle
+    use libp2p::{futures::TryFutureExt, identity, Multiaddr, PeerId};
+    use sata::Sata;
+    use std::{
+        collections::HashMap, hash::Hash, ops::Mul, sync::atomic::AtomicBool, sync::Arc,
+        time::Duration,
     };
+    use tokio::sync::RwLock;
     use warp::crypto::generate;
-    use crate::peer_to_peer_service::did_to_libp2p_pub;
+    use warp::{
+        crypto::DID,
+        data::DataType,
+        error::Error,
+        module::Module,
+        multipass::identity::{Identifier, Identity, IdentityUpdate},
+        multipass::{Friends, MultiPass},
+        pocket_dimension::query::QueryBuilder,
+        pocket_dimension::PocketDimension,
+        Extension, SingleHandle,
+    };
 
     #[derive(Default)]
     struct TestCache {
@@ -515,10 +507,9 @@ mod when_using_peer_to_peer_service {
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let cache = Arc::new(RwLock::new(TestCache::default()));
         let log_handler = Arc::new(RwLock::new(LogHandler::new()));
-        let multi_pass = Arc::new(
-            RwLock::new(
-                MultiPassImpl::new(
-                    pass_multi_pass_validation_requests)));
+        let multi_pass = Arc::new(RwLock::new(MultiPassImpl::new(
+            pass_multi_pass_validation_requests,
+        )));
         let service = PeerToPeerService::new(
             id_keys,
             "/ip4/0.0.0.0/tcp/0",
@@ -527,7 +518,8 @@ mod when_using_peer_to_peer_service {
             multi_pass.clone(),
             log_handler.clone(),
             cancellation_token.clone(),
-        ).await
+        )
+        .await
         .unwrap();
 
         (service, log_handler, peer_id, cache, multi_pass, did_key)
@@ -589,8 +581,7 @@ mod when_using_peer_to_peer_service {
 
     #[tokio::test]
     async fn subscribe_to_topic_does_not_cause_errors() {
-        let (mut client, mut log_handler, _, _, _, _) =
-            create_service(HashMap::new(), true).await;
+        let (mut client, mut log_handler, _, _, _, _) = create_service(HashMap::new(), true).await;
 
         client
             .subscribe_to_topic("some channel".to_string())
