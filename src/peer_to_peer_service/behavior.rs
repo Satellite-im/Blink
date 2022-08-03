@@ -1,14 +1,28 @@
 use anyhow::{anyhow, Result};
-use libp2p::gossipsub::GossipsubEvent;
 use libp2p::{
-    gossipsub::ValidationMode, identify::Identify, identify::IdentifyConfig,
-    identify::IdentifyEvent, identity::Keypair, kad::store::MemoryStore, kad::Kademlia,
-    kad::KademliaConfig, kad::KademliaEvent, mdns::Mdns, mdns::MdnsEvent, relay::v2::relay::Event,
-    relay::v2::relay::Relay, NetworkBehaviour, PeerId,
+    gossipsub::GossipsubEvent,
+    identify::{
+        Identify,
+        IdentifyConfig,
+        IdentifyEvent
+    },
+    identity::Keypair,
+    kad::{
+        store::MemoryStore,
+        Kademlia,
+        KademliaConfig,
+        KademliaEvent
+    },
+    mdns::{
+        Mdns,
+        MdnsEvent
+    },
+    relay::v2::relay::{Event, Relay},
+    NetworkBehaviour,
+    PeerId
 };
 use libp2p_helper::gossipsub::GossipsubStream;
 use std::{
-    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     time::Duration,
 };
