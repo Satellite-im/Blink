@@ -377,7 +377,7 @@ mod when_using_peer_to_peer_service {
     };
     use crate::peer_to_peer_service::behavior::BehaviourEvent;
 
-    const TIMEOUT_SECS : u64 = 30;
+    const TIMEOUT_SECS : u64 = 1;
 
     #[derive(Default)]
     struct TestCache {
@@ -544,7 +544,8 @@ mod when_using_peer_to_peer_service {
         .unwrap();
 
         let mut addr_to_send = None;
-        while let mut break_loop = false {
+        let mut break_loop = false;
+        while !break_loop {
             let log_handler_read = log_handler.read().await;
 
             for event in &(*log_handler_read).events {
@@ -587,25 +588,13 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut second_client, mut log_handler, peer_id, _, _, _, _) =
+            let (mut second_client, mut log_handler, peer_id, _, _, _, addr_map) =
                 create_service(HashMap::new(), true).await;
-
-            let addr_map = get_address_from_service(peer_id.clone(), log_handler.clone()).await;
 
             let (mut first_client, mut first_client_logger, _, _, _, _, _) =
                 create_service(addr_map, true).await;
 
-            first_client.pair_to_another_peer(peer_id).await.unwrap();
-
-            while let mut found_event = false {
-                let event_read = log_handler.read().await;
-                for event in &(*event_read).events {
-                    if let LogEvent::ConnectionEstablished(_) = event {
-                        found_event = true;
-                        break;
-                    }
-                }
-            }
+            pair_to_peer(&mut first_client, &peer_id, first_client_logger.clone());
         }).await.expect("Timeout");
     }
 
@@ -614,20 +603,7 @@ mod when_using_peer_to_peer_service {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
             let (mut client, mut log_handler, _, _, _, _, _) = create_service(HashMap::new(), true).await;
 
-            client
-                .subscribe_to_topic("some channel".to_string())
-                .await
-                .unwrap();
-
-            let mut found_subscription = false;
-            while !found_subscription {
-                let log_read = log_handler.read().await;
-                for event in &(*log_read).events {
-                    if let LogEvent::SubscribedToTopic(_) = event {
-                        found_subscription = true;
-                    }
-                }
-            }
+            subscribe_to_topic(&mut client, "some topic".to_string(), log_handler.clone());
         }).await.expect("Timeout");
     }
 
@@ -731,7 +707,8 @@ mod when_using_peer_to_peer_service {
     async fn subscribe_to_topic(client: &mut PeerToPeerService, topic: String, logger: Arc<RwLock<LogHandler>>) {
         client.subscribe_to_topic(topic.clone()).await.unwrap();
 
-        while let mut found_event = false {
+        let mut found_event = false;
+        while !found_event {
             let log_read = logger.read().await;
             for event in &(*log_read).events {
                 if let LogEvent::SubscribedToTopic(subs) = event {
@@ -746,7 +723,8 @@ mod when_using_peer_to_peer_service {
     async fn pair_to_peer(client: &mut PeerToPeerService, peer_id: &PeerId, logger: Arc<RwLock<LogHandler>>) {
         client.pair_to_another_peer(peer_id.clone()).await.unwrap();
 
-        while let mut found_event = false {
+        let mut found_event = false;
+        while !found_event {
             let log_read = logger.read().await;
             for event in &(*log_read).events {
                 if let LogEvent::ConnectionEstablished(peer_id_connected) = event {
@@ -823,7 +801,8 @@ mod when_using_peer_to_peer_service {
 
             pair_to_peer(&mut first_client, &second_client_peer_id, log_handler.clone()).await;
 
-            while let mut found_event = false {
+            let mut found_event = false;
+            while !found_event {
                 let log_handler = first_client_log_handler.read().await;
                 let events = &(*log_handler).events;
 
