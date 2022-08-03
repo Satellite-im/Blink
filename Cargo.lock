@@ -424,6 +424,7 @@ dependencies = [
  "base64 0.13.0",
  "bincode",
  "did-key",
+ "hmac-sha512",
  "libp2p",
  "libp2p-helper",
  "sata",
@@ -1629,6 +1630,12 @@ dependencies = [
  "generic-array",
  "hmac 0.8.1",
 ]
+
+[[package]]
+name = "hmac-sha512"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a928b002dff1780b7fa21056991d395770ab9359154b8c1724c4d0511dad0a65"
 
 [[package]]
 name = "hostname"

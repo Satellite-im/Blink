@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
+use libp2p::identity::Keypair::Ed25519;
 use libp2p::{Multiaddr, PeerId};
 use sata::Sata;
 use std::sync::atomic::AtomicBool;
@@ -22,9 +23,10 @@ fn did_to_libp2p_pub(public_key: &DID) -> Result<libp2p::identity::PublicKey> {
     Ok(pk)
 }
 
-fn did_keypair_to_libp2p_keypair(key_pair: &did_key::KeyPair) -> Result<libp2p::identity::Keypair> {
-    let result = libp2p::identity::Keypair::from_protobuf_encoding(&key_pair.private_key_bytes())?;
-    Ok(result)
+fn did_keypair_to_libp2p_keypair(key_pair: &DIDKey) -> Result<libp2p::identity::Keypair> {
+    let private = key_pair.private_key_bytes();
+    let secret_key = libp2p::identity::ed25519::SecretKey::from_bytes(private)?;
+    Ok(Ed25519(secret_key.into()))
 }
 
 fn libp2p_pub_to_did(public_key: &libp2p::identity::PublicKey) -> Result<DID> {

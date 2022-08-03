@@ -1,28 +1,17 @@
 use anyhow::{anyhow, Result};
+use libp2p::gossipsub::GossipsubEvent;
 use libp2p::{
-    gossipsub::ValidationMode,
-    identity::Keypair,
-    kad::store::MemoryStore,
-    kad::Kademlia,
-    kad::KademliaConfig,
-    kad::KademliaEvent,
-    relay::v2::relay::Event,
-    relay::v2::relay::Relay,
-    NetworkBehaviour,
-    PeerId,
-    identify::Identify,
-    identify::IdentifyConfig,
-    identify::IdentifyEvent,
-    mdns::Mdns,
-    mdns::MdnsEvent
+    gossipsub::ValidationMode, identify::Identify, identify::IdentifyConfig,
+    identify::IdentifyEvent, identity::Keypair, kad::store::MemoryStore, kad::Kademlia,
+    kad::KademliaConfig, kad::KademliaEvent, mdns::Mdns, mdns::MdnsEvent, relay::v2::relay::Event,
+    relay::v2::relay::Relay, NetworkBehaviour, PeerId,
 };
+use libp2p_helper::gossipsub::GossipsubStream;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     time::Duration,
 };
-use libp2p::gossipsub::GossipsubEvent;
-use libp2p_helper::gossipsub::GossipsubStream;
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
@@ -47,9 +36,7 @@ impl BlinkBehavior {
         kademlia_cfg.set_query_timeout(Duration::from_secs(5 * 60));
         let store = MemoryStore::new(peer_id.clone());
         let kademlia = Kademlia::with_config(peer_id.clone(), store, kademlia_cfg);
-        let gossip_sub =
-            GossipsubStream::new(key_pair.clone())
-                .map_err(|err| anyhow!(err))?;
+        let gossip_sub = GossipsubStream::new(key_pair.clone()).map_err(|err| anyhow!(err))?;
 
         let identity = Identify::new(IdentifyConfig::new(
             IDENTIFY_PROTOCOL_VERSION.into(),
@@ -61,7 +48,7 @@ impl BlinkBehavior {
             kademlia,
             relay,
             identity,
-            mdns
+            mdns,
         })
     }
 }
@@ -72,7 +59,7 @@ pub(crate) enum BehaviourEvent {
     RelayEvent(Event),
     KademliaEvent(KademliaEvent),
     IdentifyEvent(IdentifyEvent),
-    MdnsEvent(MdnsEvent)
+    MdnsEvent(MdnsEvent),
 }
 
 impl From<MdnsEvent> for BehaviourEvent {
