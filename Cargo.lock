@@ -2047,8 +2047,7 @@ dependencies = [
 [[package]]
 name = "libp2p-helper"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54cf44300d235fd00e435d3e5faefb76843a76b4343d96bd8d8e9feab0712c6b"
+source = "git+https://github.com/dariusc93/libp2p-helper.git?branch=master#d9eb27b68473b0f7fc31fde21e156d41b5f6b9c5"
 dependencies = [
  "anyhow",
  "futures",

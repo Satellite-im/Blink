@@ -1,31 +1,15 @@
 use anyhow::{anyhow, Result};
 use libp2p::{
     gossipsub::GossipsubEvent,
-    identify::{
-        Identify,
-        IdentifyConfig,
-        IdentifyEvent
-    },
+    identify::{Identify, IdentifyConfig, IdentifyEvent},
     identity::Keypair,
-    kad::{
-        store::MemoryStore,
-        Kademlia,
-        KademliaConfig,
-        KademliaEvent
-    },
-    mdns::{
-        Mdns,
-        MdnsEvent
-    },
+    kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
+    mdns::{Mdns, MdnsEvent},
     relay::v2::relay::{Event, Relay},
-    NetworkBehaviour,
-    PeerId
+    NetworkBehaviour, PeerId,
 };
 use libp2p_helper::gossipsub::GossipsubStream;
-use std::{
-    hash::{Hash, Hasher},
-    time::Duration,
-};
+use std::time::Duration;
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 

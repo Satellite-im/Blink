@@ -6,11 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#chrono = "0.4"
-#sha2 = "0.10.2"
-#cid = "0.7.0"
-#rand = "0.8.5"
-#strum_macros = "0.24.2"
 libp2p = { version = "0.46.1", features = ["tcp-tokio", "dns-tokio"] }
 anyhow = "1.0.58"
 tokio = { version =  "1.20.1", features = ["full"] }
@@ -20,5 +15,5 @@ warp = { git = "https://github.com/Satellite-im/Warp.git", branch = "main" }
 bincode = "1.3.3"
 did-key = "0.1.1"
 base64 = "0.13.0"
-libp2p-helper = "0.1.0"
+libp2p-helper = { git = "https://github.com/dariusc93/libp2p-helper.git", branch = "master" }
 hmac-sha512 = "1.1.2"

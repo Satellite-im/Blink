@@ -4,15 +4,13 @@ use crate::{
     peer_to_peer_service::{libp2p_pub_to_did, CancellationToken, LogEvent, Logger},
 };
 use anyhow::Result;
-use bincode::serialize;
-use did_key::{DIDKey, ECDH, Ed25519KeyPair, Generate, KeyMaterial};
+use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
-use libp2p::gossipsub::{Hasher, Topic};
 use libp2p::mdns::MdnsEvent;
 use libp2p::{
     core::transport::upgrade,
     futures::StreamExt,
-    gossipsub::{GossipsubEvent, Sha256Topic},
+    gossipsub::GossipsubEvent,
     identify::IdentifyEvent,
     identity::Keypair,
     kad::{KademliaEvent, QueryResult},
@@ -30,15 +28,11 @@ use tokio::{
     sync::{mpsc::Sender, RwLock},
     task::JoinHandle,
 };
-use warp::crypto::cipher;
-use warp::crypto::ed25519_dalek::{PublicKey, SignatureError};
 use warp::crypto::DID;
-use warp::error::Error;
-use warp::multipass::identity::Identity;
 use warp::{
     data::DataType,
     multipass::{identity::Identifier, MultiPass},
-    pocket_dimension::{query::QueryBuilder, PocketDimension},
+    pocket_dimension::PocketDimension,
 };
 
 pub type TopicName = String;
@@ -53,18 +47,16 @@ pub enum BlinkCommand {
 
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
-    task_handle: JoinHandle<()>
+    task_handle: JoinHandle<()>,
 }
 
-impl Drop for PeerToPeerService
-{
+impl Drop for PeerToPeerService {
     fn drop(&mut self) {
         self.task_handle.abort();
     }
 }
 
-impl PeerToPeerService
-{
+impl PeerToPeerService {
     pub async fn new(
         did_key: Arc<RwLock<DID>>,
         address_to_listen: &str,
@@ -118,7 +110,7 @@ impl PeerToPeerService
 
         Ok(Self {
             command_channel: command_tx,
-            task_handle: handler
+            task_handle: handler,
         })
     }
 
@@ -152,9 +144,12 @@ impl PeerToPeerService
                 let serialized_result = bincode::serialize(&sata);
                 match serialized_result {
                     Ok(serialized) => {
-                        if let Err(_) = swarm.behaviour_mut().gossip_sub.publish(name, serialized) {
+                        if let Err(err) = swarm.behaviour_mut().gossip_sub.publish(name, serialized)
+                        {
+                            dbg!(&err);
                             let mut log_service = logger.write().await;
-                            (*log_service).event_occurred(LogEvent::ErrorPublishingData);
+                            (*log_service)
+                                .event_occurred(LogEvent::ErrorPublishingData(err.to_string()));
                         }
                     }
                     Err(_) => {
@@ -202,23 +197,32 @@ impl PeerToPeerService
                             {
                                 Ok(_) => {
                                     let private_read = did.read().await;
-                                    let private_key_pair = Ed25519KeyPair::from_secret_key(&(*private_read).as_ref().private_key_bytes()).get_x25519();
-                                    let public_key_pair = Ed25519KeyPair::from_public_key(&their_public.as_ref().public_key_bytes()).get_x25519();
-                                    let exchange =
-                                        private_key_pair.key_exchange(&public_key_pair);
+                                    let private_key_pair = Ed25519KeyPair::from_secret_key(
+                                        &(*private_read).as_ref().private_key_bytes(),
+                                    )
+                                    .get_x25519();
+                                    let public_key_pair = Ed25519KeyPair::from_public_key(
+                                        &their_public.as_ref().public_key_bytes(),
+                                    )
+                                    .get_x25519();
+                                    let exchange = private_key_pair.key_exchange(&public_key_pair);
                                     let hashed = Hash::hash(exchange);
                                     let topic = base64::encode(hashed);
-                                    match swarm.behaviour_mut().gossip_sub.subscribe(topic.clone()) {
+                                    match swarm.behaviour_mut().gossip_sub.subscribe(topic.clone())
+                                    {
                                         Ok(_) => {
                                             let mut log = logger.write().await;
-                                            (*log).event_occurred(LogEvent::SubscribedToTopic(topic));
+                                            (*log)
+                                                .event_occurred(LogEvent::SubscribedToTopic(topic));
                                         }
                                         Err(er) => {
                                             let mut log = logger.write().await;
-                                            (*log).event_occurred(LogEvent::SubscriptionError(er.to_string()));
+                                            (*log).event_occurred(LogEvent::SubscriptionError(
+                                                er.to_string(),
+                                            ));
                                         }
                                     }
-                                },
+                                }
                                 Err(_) => {
                                     let mut log = logger.write().await;
                                     (*log).event_occurred(LogEvent::FailureToIdentifyPeer);
@@ -356,21 +360,16 @@ impl PeerToPeerService
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
-    use crate::peer_to_peer_service::{did_keypair_to_libp2p_keypair, did_to_libp2p_pub};
+    use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
     use crate::{
         peer_to_peer_service::peer_to_peer_service::PeerToPeerService,
-        peer_to_peer_service::{libp2p_pub_to_did, LogEvent, Logger},
+        peer_to_peer_service::{LogEvent, Logger},
     };
     use did_key::Ed25519KeyPair;
-    use libp2p::{futures::TryFutureExt, identity, Multiaddr, PeerId};
+    use libp2p::{Multiaddr, PeerId};
     use sata::Sata;
-    use std::{
-        collections::HashMap, hash::Hash, ops::Mul, sync::atomic::AtomicBool, sync::Arc,
-        time::Duration,
-    };
-    use std::env::current_exe;
+    use std::{collections::HashMap, sync::atomic::AtomicBool, sync::Arc, time::Duration};
     use tokio::sync::RwLock;
-    use warp::crypto::generate;
     use warp::{
         crypto::DID,
         data::DataType,
@@ -382,9 +381,8 @@ mod when_using_peer_to_peer_service {
         pocket_dimension::PocketDimension,
         Extension, SingleHandle,
     };
-    use crate::peer_to_peer_service::behavior::BehaviourEvent;
 
-    const TIMEOUT_SECS : u64 = 1;
+    const TIMEOUT_SECS: u64 = 1;
 
     #[derive(Default)]
     struct TestCache {
@@ -420,15 +418,11 @@ mod when_using_peer_to_peer_service {
     impl SingleHandle for MultiPassImpl {}
 
     impl MultiPass for MultiPassImpl {
-        fn create_identity(
-            &mut self,
-            username: Option<&str>,
-            passphrase: Option<&str>,
-        ) -> Result<DID, Error> {
+        fn create_identity(&mut self, _: Option<&str>, _: Option<&str>) -> Result<DID, Error> {
             todo!()
         }
 
-        fn get_identity(&self, id: Identifier) -> Result<Identity, Error> {
+        fn get_identity(&self, _: Identifier) -> Result<Identity, Error> {
             if self.pass_as_valid {
                 return Ok(Identity::default());
             }
@@ -436,11 +430,11 @@ mod when_using_peer_to_peer_service {
             Err(Error::IdentityDoesntExist)
         }
 
-        fn update_identity(&mut self, option: IdentityUpdate) -> Result<(), Error> {
+        fn update_identity(&mut self, _: IdentityUpdate) -> Result<(), Error> {
             todo!()
         }
 
-        fn decrypt_private_key(&self, passphrase: Option<&str>) -> Result<Vec<u8>, Error> {
+        fn decrypt_private_key(&self, _: Option<&str>) -> Result<Vec<u8>, Error> {
             todo!()
         }
 
@@ -471,27 +465,23 @@ mod when_using_peer_to_peer_service {
             Ok(())
         }
 
-        fn has_data(&mut self, dimension: DataType, query: &QueryBuilder) -> Result<(), Error> {
+        fn has_data(&mut self, _: DataType, _: &QueryBuilder) -> Result<(), Error> {
             todo!()
         }
 
-        fn get_data(
-            &self,
-            dimension: DataType,
-            query: Option<&QueryBuilder>,
-        ) -> Result<Vec<Sata>, Error> {
+        fn get_data(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<Vec<Sata>, Error> {
             todo!()
         }
 
-        fn size(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+        fn size(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<i64, Error> {
             todo!()
         }
 
-        fn count(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+        fn count(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<i64, Error> {
             todo!()
         }
 
-        fn empty(&mut self, dimension: DataType) -> Result<(), Error> {
+        fn empty(&mut self, _: DataType) -> Result<(), Error> {
             todo!()
         }
     }
@@ -522,7 +512,7 @@ mod when_using_peer_to_peer_service {
         Arc<RwLock<TestCache>>,
         Arc<RwLock<MultiPassImpl>>,
         Arc<RwLock<DID>>,
-        HashMap<PeerId, Multiaddr>
+        HashMap<PeerId, Multiaddr>,
     ) {
         let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
             None,
@@ -567,60 +557,89 @@ mod when_using_peer_to_peer_service {
         let mut map = HashMap::new();
         map.insert(peer_id.clone(), addr_to_send.unwrap());
 
-        (service, log_handler, peer_id, cache, multi_pass, id_keys, map)
+        (
+            service,
+            log_handler,
+            peer_id,
+            cache,
+            multi_pass,
+            id_keys,
+            map,
+        )
     }
 
     #[tokio::test]
     async fn open_does_not_throw() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
             create_service(HashMap::new(), true).await;
-        }).await.expect("timeout");
+        })
+        .await
+        .expect("timeout");
     }
 
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut second_client, mut log_handler, peer_id, _, _, _, addr_map) =
-                create_service(HashMap::new(), true).await;
+            let (_, _, peer_id, _, _, _, addr_map) = create_service(HashMap::new(), true).await;
 
-            let (mut first_client, mut first_client_logger, _, _, _, _, _) =
+            let (mut first_client, first_client_logger, _, _, _, _, _) =
                 create_service(addr_map, true).await;
 
-            pair_to_peer(&mut first_client, &peer_id, first_client_logger.clone());
-        }).await.expect("Timeout");
+            pair_to_peer(&mut first_client, &peer_id, first_client_logger.clone()).await;
+        })
+        .await
+        .expect("Timeout");
     }
 
     #[tokio::test]
     async fn subscribe_to_topic_does_not_cause_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut client, mut log_handler, _, _, _, _, _) = create_service(HashMap::new(), true).await;
+            let (mut client, log_handler, _, _, _, _, _) =
+                create_service(HashMap::new(), true).await;
 
             subscribe_to_topic(&mut client, "some topic".to_string(), log_handler.clone()).await;
-        }).await.expect("Timeout");
+        })
+        .await
+        .expect("Timeout");
     }
 
     #[tokio::test]
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
-        tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut second_client, log_handler, second_client_peer_id, second_client_cache, _, _, second_client_address) =
-                create_service(HashMap::new(), true).await;
-
-            subscribe_to_topic(&mut second_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
-
+        tokio::time::timeout(Duration::from_secs(2), async {
             let (
-                mut first_client,
-                first_client_log_handler,
-                first_client_peer_id,
-                first_client_cache,
+                mut second_client,
+                log_handler,
+                second_client_peer_id,
+                second_client_cache,
                 _,
                 _,
-                _,
-            ) = create_service(second_client_address, true).await;
+                second_client_address,
+            ) = create_service(HashMap::new(), true).await;
 
-            subscribe_to_topic(&mut first_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
+            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+                create_service(second_client_address, true).await;
 
-            pair_to_peer(&mut first_client, &second_client_peer_id, log_handler.clone()).await;
+            subscribe_to_topic(
+                &mut second_client,
+                TOPIC_NAME.to_string(),
+                log_handler.clone(),
+            )
+            .await;
+
+            subscribe_to_topic(
+                &mut first_client,
+                TOPIC_NAME.to_string(),
+                first_client_log_handler.clone(),
+            )
+            .await;
+
+            pair_to_peer(
+                &mut first_client,
+                &second_client_peer_id,
+                first_client_log_handler.clone(),
+            )
+            .await;
 
             first_client
                 .publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default())
@@ -633,33 +652,26 @@ mod when_using_peer_to_peer_service {
                     break;
                 }
             }
-        }).await.expect("Timeout");
+        })
+        .await
+        .expect("Timeout");
     }
 
     #[tokio::test]
     async fn failure_to_identify_peer_causes_error() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (
-                first_client,
-                mut log_handler_first_client,
-                first_client_peer_id,
-                first_client_cache,
-                first_client_multi_pass,
-                first_client_did_key,
-                first_client_address
-            ) = create_service(HashMap::new(), false).await;
+            let (_, _, first_client_peer_id, _, _, _, first_client_address) =
+                create_service(HashMap::new(), false).await;
 
-            let (
-                mut second_client,
-                mut log_handler_second_client,
-                second_client_peer_id,
-                second_client_cache,
-                second_client_multi_pass,
-                second_client_did_key,
-                _
-            ) = create_service(first_client_address, false).await;
+            let (mut second_client, log_handler_second_client, _, _, _, _, _) =
+                create_service(first_client_address, false).await;
 
-            pair_to_peer(&mut second_client, &first_client_peer_id, log_handler_second_client.clone()).await;
+            pair_to_peer(
+                &mut second_client,
+                &first_client_peer_id,
+                log_handler_second_client.clone(),
+            )
+            .await;
 
             let mut found_error = false;
             while !found_error {
@@ -670,10 +682,16 @@ mod when_using_peer_to_peer_service {
                     }
                 }
             }
-        }).await.expect("Timeout");
+        })
+        .await
+        .expect("Timeout");
     }
 
-    async fn subscribe_to_topic(client: &mut PeerToPeerService, topic: String, logger: Arc<RwLock<LogHandler>>) {
+    async fn subscribe_to_topic(
+        client: &mut PeerToPeerService,
+        topic: String,
+        logger: Arc<RwLock<LogHandler>>,
+    ) {
         client.subscribe_to_topic(topic.clone()).await.unwrap();
 
         let mut found_event = false;
@@ -689,14 +707,18 @@ mod when_using_peer_to_peer_service {
         }
     }
 
-    async fn pair_to_peer(client: &mut PeerToPeerService, peer_id: &PeerId, logger: Arc<RwLock<LogHandler>>) {
+    async fn pair_to_peer(
+        client: &mut PeerToPeerService,
+        peer_id: &PeerId,
+        logger: Arc<RwLock<LogHandler>>,
+    ) {
         client.pair_to_another_peer(peer_id.clone()).await.unwrap();
 
         let mut found_event = false;
         while !found_event {
             let log_read = logger.read().await;
             for event in &(*log_read).events {
-                if let LogEvent::ConnectionEstablished(peer_id_connected) = event {
+                if let LogEvent::ConnectionEstablished(_) = event {
                     found_event = true;
                     break;
                 }
@@ -709,22 +731,32 @@ mod when_using_peer_to_peer_service {
         const TOPIC_NAME: &str = "SomeTopic";
 
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache, _, _, second_client_address) =
-                create_service(HashMap::new(), false).await;
-
-            subscribe_to_topic(&mut second_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
-
             let (
-                mut first_client,
-                mut first_client_log_handler,
-                first_client_peer_id,
-                first_client_cache,
+                mut second_client,
+                log_handler,
+                second_client_peer_id,
                 _,
                 _,
-                _
-            ) = create_service(second_client_address, true).await;
+                _,
+                second_client_address,
+            ) = create_service(HashMap::new(), false).await;
 
-            pair_to_peer(&mut first_client, &second_client_peer_id, first_client_log_handler.clone()).await;
+            subscribe_to_topic(
+                &mut second_client,
+                TOPIC_NAME.to_string(),
+                log_handler.clone(),
+            )
+            .await;
+
+            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+                create_service(second_client_address, true).await;
+
+            pair_to_peer(
+                &mut first_client,
+                &second_client_peer_id,
+                first_client_log_handler.clone(),
+            )
+            .await;
 
             let log_handler_read = first_client_log_handler.read().await;
 
@@ -740,26 +772,26 @@ mod when_using_peer_to_peer_service {
                     }
                 }
             }
-        }).await.expect("Timeout");
+        })
+        .await
+        .expect("Timeout");
     }
 
     #[tokio::test]
     async fn subscribe_to_common_channel_after_pair() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut second_client, mut log_handler, second_client_peer_id, second_client_cache, _, _, second_client_addr) =
-                create_service(HashMap::new(), true).await;;
+            let (_, log_handler, second_client_peer_id, _, _, _, second_client_addr) =
+                create_service(HashMap::new(), true).await;
 
-            let (
-                mut first_client,
-                mut first_client_log_handler,
-                first_client_peer_id,
-                first_client_cache,
-                _,
-                _,
-                _
-            ) = create_service(second_client_addr, true).await;
+            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+                create_service(second_client_addr, true).await;
 
-            pair_to_peer(&mut first_client, &second_client_peer_id, log_handler.clone()).await;
+            pair_to_peer(
+                &mut first_client,
+                &second_client_peer_id,
+                log_handler.clone(),
+            )
+            .await;
 
             let mut found_event = false;
             while !found_event {
@@ -767,11 +799,13 @@ mod when_using_peer_to_peer_service {
                 let events = &(*log_handler).events;
 
                 for event in events {
-                    if let LogEvent::SubscribedToTopic(topic) = event {
+                    if let LogEvent::SubscribedToTopic(_) = event {
                         found_event = true;
                     }
                 }
             }
-        }).await.expect("Timeout");
+        })
+        .await
+        .expect("Timeout");
     }
 }
