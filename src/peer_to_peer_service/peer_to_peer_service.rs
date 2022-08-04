@@ -53,7 +53,7 @@ pub enum BlinkCommand {
 
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
-    messages_channel: Receiver<MessageContent>,
+    pub messages_channel: Receiver<MessageContent>,
     task_handle: JoinHandle<()>,
 }
 
@@ -662,6 +662,49 @@ mod when_using_peer_to_peer_service {
     }
 
     #[tokio::test]
+    async fn message_reaches_other_client() {
+        const TOPIC_NAME: &str = "SomeTopic";
+        tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
+            let (mut second_client, log_handler, second_client_peer_id, second_client_cache, _, _, second_client_addr) =
+                create_service(HashMap::new(), true).await;
+
+            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+                create_service(second_client_addr, true).await;
+
+            first_client.pair_to_another_peer(second_client_peer_id).await.unwrap();
+
+            subscribe_to_topic(
+                &mut first_client,
+                TOPIC_NAME.to_string(),
+                first_client_log_handler.clone(),
+            )
+                .await;
+
+            subscribe_to_topic(&mut second_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
+
+            let mut connection_ok = false;
+
+            // wait for connection to be good to go
+            while !connection_ok {
+                let first_client_log_read = first_client_log_handler.read().await;
+                let events = &(*first_client_log_read).events;
+
+                for event in events {
+                    if let LogEvent::PeerIdentified = event {
+                        connection_ok = true;
+                        break;
+                    }
+                }
+            }
+
+            first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default()).await.unwrap();
+
+            while second_client.messages_channel.recv().await.is_none() {
+            }
+        }).await.expect("Timeout");
+    }
+
+    #[tokio::test]
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
@@ -684,7 +727,7 @@ mod when_using_peer_to_peer_service {
 
             let mut connection_ok = false;
 
-            // wait for connection to be established
+            // wait for connection to be good to go
             while !connection_ok {
                 let first_client_log_read = first_client_log_handler.read().await;
                 let events = &(*first_client_log_read).events;
