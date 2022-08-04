@@ -25,7 +25,6 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 use libp2p::gossipsub::{Sha256Topic, TopicHash};
-use libp2p::swarm::DialError;
 use tokio::{
     sync::{mpsc::Sender, RwLock},
     task::JoinHandle,
@@ -83,7 +82,7 @@ impl PeerToPeerService {
         let mut swarm = Self::create_swarm(&key_pair, &peer_id).await?;
         if let Some(initial_address) = initial_known_address {
             for (peer, addr) in initial_address {
-                let mut behaviour = swarm.behaviour_mut();
+                let behaviour = swarm.behaviour_mut();
                 behaviour.kademlia.add_address(&peer, addr);
                 behaviour.gossip_sub.add_explicit_peer(&peer_id);
             }
@@ -271,6 +270,7 @@ impl PeerToPeerService {
             },
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => match gsp {
                 GossipsubEvent::Message { message, .. } => {
+                    println!("message arrived");
                     let message_data = message.data;
                     let data = bincode::deserialize::<Sata>(&message_data);
                     match data {
@@ -322,6 +322,7 @@ impl PeerToPeerService {
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                println!("Connection established");
                 let mut log_service = logger.write().await;
                 (*log_service).event_occurred(LogEvent::ConnectionEstablished(peer_id));
             }
@@ -631,9 +632,9 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (_, cli_logger, peer_id, _, _, _, addr_map) = create_service(HashMap::new(), true).await;
+            let (_, _, peer_id, _, _, _, addr_map) = create_service(HashMap::new(), true).await;
 
-            let (mut first_client, first_client_logger, _, _, _, _, _) =
+            let (mut first_client, _, _, _, _, _, _) =
                 create_service(addr_map, true).await;
 
             first_client.pair_to_another_peer(peer_id).await.unwrap();
@@ -658,25 +659,13 @@ mod when_using_peer_to_peer_service {
     async fn message_to_another_client_is_added_to_cache() {
         const TOPIC_NAME: &str = "SomeTopic";
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (
-                mut second_client,
-                log_handler,
-                second_client_peer_id,
-                second_client_cache,
-                _,
-                _,
-                second_client_address,
-            ) = create_service(HashMap::new(), true).await;
+            let (mut second_client, log_handler, second_client_peer_id, second_client_cache, _, _, second_client_addr) =
+                create_service(HashMap::new(), true).await;
 
             let (mut first_client, first_client_log_handler, _, _, _, _, _) =
-                create_service(second_client_address, true).await;
+                create_service(second_client_addr, true).await;
 
-            subscribe_to_topic(
-                &mut second_client,
-                TOPIC_NAME.to_string(),
-                log_handler.clone(),
-            )
-            .await;
+            first_client.pair_to_another_peer(second_client_peer_id).await.unwrap();
 
             subscribe_to_topic(
                 &mut first_client,
@@ -685,12 +674,9 @@ mod when_using_peer_to_peer_service {
             )
             .await;
 
-            first_client.pair_to_another_peer(second_client_peer_id.clone()).await.unwrap();
+            subscribe_to_topic(&mut second_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
 
-            first_client
-                .publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default())
-                .await
-                .unwrap();
+            first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default()).await.unwrap();
 
             loop {
                 let cache_read = second_client_cache.read().await;

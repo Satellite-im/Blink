@@ -28,9 +28,22 @@ impl BlinkBehavior {
         kademlia_cfg.set_query_timeout(Duration::from_secs(5 * 60));
         let store = MemoryStore::new(peer_id.clone());
         let kademlia = Kademlia::with_config(peer_id.clone(), store, kademlia_cfg);
+        // let config = gossipsub::GossipsubConfigBuilder::default()
+        //     .build()
+        //     .map_err(|e| anyhow::anyhow!(e))?;
+
         let config = gossipsub::GossipsubConfigBuilder::default()
+            .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
+            .validation_mode(ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
+            .message_id_fn(|message: &GossipsubMessage| {
+                let mut s = DefaultHasher::new();
+                message.data.hash(&mut s);
+                MessageId::from(s.finish().to_string())
+            }) // content-address messages. No two messages of the
+            // same content will be propagated.
             .build()
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .expect("Valid config");
+        // build a gossipsub network behaviour
 
         let gossip_sub = Gossipsub::new(MessageAuthenticity::Signed(key_pair.clone()), config)
             .map_err(|x| anyhow!(x))?;
