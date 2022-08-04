@@ -55,6 +55,7 @@ pub enum LogEvent {
     FailureToDisconnectPeer,
     PeerConnectionClosed(PeerId),
     ConnectionEstablished(PeerId),
+    TaskCancelled,
 }
 
 pub trait Logger: Send + Sync {
