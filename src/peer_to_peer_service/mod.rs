@@ -40,6 +40,7 @@ fn libp2p_pub_to_did(public_key: &libp2p::identity::PublicKey) -> Result<DID> {
 
 #[derive(Debug)]
 pub enum LogEvent {
+    DialSuccessful(String),
     DialError(String),
     ConvertKeyError,
     SubscriptionError(String),
@@ -50,6 +51,7 @@ pub enum LogEvent {
     ErrorPublishingData(String),
     SubscribedToTopic(String),
     FailureToIdentifyPeer,
+    FailedToSendMessage,
     FailureToDisconnectPeer,
     PeerConnectionClosed(PeerId),
     ConnectionEstablished(PeerId),

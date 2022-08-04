@@ -1,22 +1,16 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use anyhow::{anyhow, Result};
-use libp2p::{
-    gossipsub::GossipsubEvent,
-    identify::{Identify, IdentifyConfig, IdentifyEvent},
-    identity::Keypair,
-    kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
-    mdns::{Mdns, MdnsEvent},
-    relay::v2::relay::{Event, Relay},
-    NetworkBehaviour, PeerId,
-};
-use libp2p_helper::gossipsub::GossipsubStream;
+use libp2p::{gossipsub::GossipsubEvent, identify::{Identify, IdentifyConfig, IdentifyEvent}, identity::Keypair, kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent}, mdns::{Mdns, MdnsEvent}, relay::v2::relay::{Event, Relay}, NetworkBehaviour, PeerId, gossipsub};
 use std::time::Duration;
+use libp2p::gossipsub::{Gossipsub, GossipsubMessage, MessageAuthenticity, MessageId, ValidationMode};
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = false, out_event = "BehaviourEvent")]
 pub(crate) struct BlinkBehavior {
-    pub(crate) gossip_sub: GossipsubStream,
+    pub(crate) gossip_sub: Gossipsub,
     pub(crate) kademlia: Kademlia<MemoryStore>,
     pub(crate) identity: Identify,
     pub(crate) relay: Relay,
@@ -34,8 +28,12 @@ impl BlinkBehavior {
         kademlia_cfg.set_query_timeout(Duration::from_secs(5 * 60));
         let store = MemoryStore::new(peer_id.clone());
         let kademlia = Kademlia::with_config(peer_id.clone(), store, kademlia_cfg);
-        let gossip_sub = GossipsubStream::new(key_pair.clone()).map_err(|err| anyhow!(err))?;
+        let config = gossipsub::GossipsubConfigBuilder::default()
+            .build()
+            .map_err(|e| anyhow::anyhow!(e))?;
 
+        let gossip_sub = Gossipsub::new(MessageAuthenticity::Signed(key_pair.clone()), config)
+            .map_err(|x| anyhow!(x))?;
         let identity = Identify::new(IdentifyConfig::new(
             IDENTIFY_PROTOCOL_VERSION.into(),
             key_pair.public(),
