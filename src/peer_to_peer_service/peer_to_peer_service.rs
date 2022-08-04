@@ -211,6 +211,7 @@ impl PeerToPeerService {
             },
             SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => match identify {
                 IdentifyEvent::Received { peer_id, info } => {
+                    dbg!(&"Identify came in");
                     let did_result = libp2p_pub_to_did(&info.public_key);
 
                     match did_result {
@@ -240,8 +241,10 @@ impl PeerToPeerService {
                                             let mut log = logger.write().await;
                                             (*log)
                                                 .event_occurred(LogEvent::SubscribedToTopic(topic));
+                                            (*log).event_occurred(LogEvent::PeerIdentified);
                                         }
                                         Err(er) => {
+                                            println!("Erro");
                                             let mut log = logger.write().await;
                                             (*log).event_occurred(LogEvent::SubscriptionError(
                                                 er.to_string(),
@@ -250,6 +253,7 @@ impl PeerToPeerService {
                                     }
                                 }
                                 Err(_) => {
+                                    println!("Erro");
                                     let mut log = logger.write().await;
                                     (*log).event_occurred(LogEvent::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
@@ -259,6 +263,7 @@ impl PeerToPeerService {
                             }
                         }
                         Err(_) => {
+                            println!("Erro");
                             let mut log = logger.write().await;
                             (*log).event_occurred(LogEvent::ConvertKeyError);
                         }
@@ -327,6 +332,7 @@ impl PeerToPeerService {
                 (*log_service).event_occurred(LogEvent::ConnectionEstablished(peer_id));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                println!("connection closed");
                 let mut log_service = logger.write().await;
                 (*log_service).event_occurred(LogEvent::PeerConnectionClosed(peer_id));
             }
@@ -414,7 +420,7 @@ mod when_using_peer_to_peer_service {
         Extension, SingleHandle,
     };
 
-    const TIMEOUT_SECS: u64 = 2;
+    const TIMEOUT_SECS: u64 = 1;
 
     #[derive(Default)]
     struct TestCache {
@@ -675,6 +681,21 @@ mod when_using_peer_to_peer_service {
             .await;
 
             subscribe_to_topic(&mut second_client, TOPIC_NAME.to_string(), log_handler.clone()).await;
+
+            let mut connection_ok = false;
+
+            // wait for connection to be established
+            while !connection_ok {
+                let first_client_log_read = first_client_log_handler.read().await;
+                let events = &(*first_client_log_read).events;
+
+                for event in events {
+                    if let LogEvent::PeerIdentified = event {
+                        connection_ok = true;
+                        break;
+                    }
+                }
+            }
 
             first_client.publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default()).await.unwrap();
 

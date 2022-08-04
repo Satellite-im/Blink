@@ -51,6 +51,7 @@ pub enum LogEvent {
     ErrorPublishingData(String),
     SubscribedToTopic(String),
     FailureToIdentifyPeer,
+    PeerIdentified,
     FailedToSendMessage,
     FailureToDisconnectPeer,
     PeerConnectionClosed(PeerId),
