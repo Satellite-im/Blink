@@ -1,8 +1,5 @@
 use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
-use crate::{
-    peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior},
-    peer_to_peer_service::{libp2p_pub_to_did, CancellationToken, LogEvent, Logger},
-};
+use crate::{peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior}, peer_to_peer_service::{libp2p_pub_to_did, CancellationToken}};
 use anyhow::Result;
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
@@ -36,6 +33,7 @@ use warp::{
     multipass::{identity::Identifier, MultiPass},
     pocket_dimension::PocketDimension,
 };
+use blink_contract::{Event, EventBus};
 
 pub type TopicName = String;
 
@@ -70,7 +68,7 @@ impl PeerToPeerService {
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
         cache: Arc<RwLock<impl PocketDimension + 'static>>,
         multi_pass: Arc<RwLock<impl MultiPass + 'static>>,
-        logger: Arc<RwLock<impl Logger + 'static>>,
+        logger: Arc<RwLock<impl EventBus + 'static>>,
         cancellation_token: CancellationToken,
     ) -> Result<Self> {
         let key_pair = {
@@ -101,7 +99,7 @@ impl PeerToPeerService {
             loop {
                 if cancellation_token.load(Ordering::Acquire) {
                     let mut log_write = thread_logger.write().await;
-                    (*log_write).event_occurred(LogEvent::TaskCancelled);
+                    (*log_write).event_occurred(Event::TaskCancelled);
                 }
 
                 tokio::select! {
@@ -128,7 +126,7 @@ impl PeerToPeerService {
     async fn handle_command(
         swarm: &mut Swarm<BlinkBehavior>,
         command: BlinkCommand,
-        logger: Arc<RwLock<impl Logger>>,
+        logger: Arc<RwLock<impl EventBus>>,
     ) {
         match command {
             BlinkCommand::FindNearest(peer_id) => {
@@ -140,13 +138,13 @@ impl PeerToPeerService {
                         logger
                             .write()
                             .await
-                            .event_occurred(LogEvent::DialSuccessful(peer_id.to_string()));
+                            .event_occurred(Event::DialSuccessful(peer_id.to_string()));
                     }
                     Err(err) => {
                         logger
                             .write()
                             .await
-                            .event_occurred(LogEvent::DialError(err.to_string()));
+                            .event_occurred(Event::DialError(err.to_string()));
                     }
                 }
             }
@@ -155,11 +153,11 @@ impl PeerToPeerService {
                 match swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
                     Ok(_) => {
                         let mut service = logger.write().await;
-                        service.event_occurred(LogEvent::SubscribedToTopic(address));
+                        service.event_occurred(Event::SubscribedToTopic(address));
                     }
                     Err(e) => {
                         let mut service = logger.write().await;
-                        service.event_occurred(LogEvent::SubscriptionError(e.to_string()))
+                        service.event_occurred(Event::SubscriptionError(e.to_string()))
                     }
                 }
             }
@@ -173,12 +171,12 @@ impl PeerToPeerService {
                             dbg!(&err);
                             let mut log_service = logger.write().await;
                             (*log_service)
-                                .event_occurred(LogEvent::ErrorPublishingData(err.to_string()));
+                                .event_occurred(Event::ErrorPublishingData(err.to_string()));
                         }
                     }
                     Err(_) => {
                         let mut log_service = logger.write().await;
-                        (*log_service).event_occurred(LogEvent::ErrorSerializingData);
+                        (*log_service).event_occurred(Event::ErrorSerializingData);
                     }
                 }
             }
@@ -189,7 +187,7 @@ impl PeerToPeerService {
         swarm: &mut Swarm<BlinkBehavior>,
         event: SwarmEvent<BehaviourEvent, TErr>,
         cache: Arc<RwLock<impl PocketDimension>>,
-        logger: Arc<RwLock<impl Logger>>,
+        logger: Arc<RwLock<impl EventBus>>,
         multi_pass: Arc<RwLock<impl MultiPass>>,
         message_sender: &Sender<MessageContent>,
         did: Arc<RwLock<DID>>,
@@ -241,13 +239,13 @@ impl PeerToPeerService {
                                         Ok(_) => {
                                             let mut log = logger.write().await;
                                             (*log)
-                                                .event_occurred(LogEvent::SubscribedToTopic(topic));
-                                            (*log).event_occurred(LogEvent::PeerIdentified);
+                                                .event_occurred(Event::SubscribedToTopic(topic));
+                                            (*log).event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
                                             println!("Erro");
                                             let mut log = logger.write().await;
-                                            (*log).event_occurred(LogEvent::SubscriptionError(
+                                            (*log).event_occurred(Event::SubscriptionError(
                                                 er.to_string(),
                                             ));
                                         }
@@ -256,9 +254,9 @@ impl PeerToPeerService {
                                 Err(_) => {
                                     println!("Erro");
                                     let mut log = logger.write().await;
-                                    (*log).event_occurred(LogEvent::FailureToIdentifyPeer);
+                                    (*log).event_occurred(Event::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
-                                        (*log).event_occurred(LogEvent::FailureToDisconnectPeer);
+                                        (*log).event_occurred(Event::FailureToDisconnectPeer);
                                     }
                                 }
                             }
@@ -266,7 +264,7 @@ impl PeerToPeerService {
                         Err(_) => {
                             println!("Erro");
                             let mut log = logger.write().await;
-                            (*log).event_occurred(LogEvent::ConvertKeyError);
+                            (*log).event_occurred(Event::ConvertKeyError);
                         }
                     }
                 }
@@ -284,16 +282,16 @@ impl PeerToPeerService {
                             let mut write = cache.write().await;
                             if let Err(e) = write.add_data(DataType::Messaging, &info) {
                                 let mut log_service = logger.write().await;
-                                log_service.event_occurred(LogEvent::ErrorAddingToCache(e));
+                                log_service.event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
                             }
                             if let Err(_) = message_sender.send((message.topic, info.clone())).await {
                                 let mut log_service = logger.write().await;
-                                log_service.event_occurred(LogEvent::FailedToSendMessage);
+                                log_service.event_occurred(Event::FailedToSendMessage);
                             }
                         }
                         Err(_) => {
                             let mut log_service = logger.write().await;
-                            log_service.event_occurred(LogEvent::ErrorDeserializingData);
+                            log_service.event_occurred(Event::ErrorDeserializingData);
                         }
                     }
                 }
@@ -330,12 +328,12 @@ impl PeerToPeerService {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 println!("Connection established");
                 let mut log_service = logger.write().await;
-                (*log_service).event_occurred(LogEvent::ConnectionEstablished(peer_id));
+                (*log_service).event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 println!("connection closed");
                 let mut log_service = logger.write().await;
-                (*log_service).event_occurred(LogEvent::PeerConnectionClosed(peer_id));
+                (*log_service).event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
             }
             SwarmEvent::IncomingConnection { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {}
@@ -343,7 +341,7 @@ impl PeerToPeerService {
             SwarmEvent::BannedPeer { .. } => {}
             SwarmEvent::NewListenAddr { address, .. } => {
                 let mut log_service = logger.write().await;
-                (*log_service).event_occurred(LogEvent::NewListenAddr(address));
+                (*log_service).event_occurred(Event::NewListenAddr(address));
             }
             SwarmEvent::ExpiredListenAddr { .. } => {}
             SwarmEvent::ListenerClosed { .. } => {}
@@ -400,10 +398,7 @@ impl PeerToPeerService {
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
     use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
-    use crate::{
-        peer_to_peer_service::peer_to_peer_service::PeerToPeerService,
-        peer_to_peer_service::{LogEvent, Logger},
-    };
+    use crate::{peer_to_peer_service::peer_to_peer_service::PeerToPeerService};
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
     use sata::Sata;
@@ -420,6 +415,7 @@ mod when_using_peer_to_peer_service {
         pocket_dimension::PocketDimension,
         Extension, SingleHandle,
     };
+    use blink_contract::{Event, EventBus};
 
     const TIMEOUT_SECS: u64 = 1;
 
@@ -473,9 +469,10 @@ mod when_using_peer_to_peer_service {
             todo!()
         }
 
-        fn decrypt_private_key(&self, _: Option<&str>) -> Result<Vec<u8>, Error> {
+        fn decrypt_private_key(&self, passphrase: Option<&str>) -> Result<DID, Error> {
             todo!()
         }
+
 
         fn refresh_cache(&mut self) -> Result<(), Error> {
             todo!()
@@ -526,7 +523,7 @@ mod when_using_peer_to_peer_service {
     }
 
     struct LogHandler {
-        pub events: Vec<LogEvent>,
+        pub events: Vec<Event>,
     }
 
     impl LogHandler {
@@ -535,8 +532,8 @@ mod when_using_peer_to_peer_service {
         }
     }
 
-    impl Logger for LogHandler {
-        fn event_occurred(&mut self, event: LogEvent) {
+    impl EventBus for LogHandler {
+        fn event_occurred(&mut self, event: Event) {
             self.events.push(event);
         }
     }
@@ -585,7 +582,7 @@ mod when_using_peer_to_peer_service {
             let log_handler_read = log_handler.read().await;
 
             for event in &(*log_handler_read).events {
-                if let LogEvent::NewListenAddr(addr) = event {
+                if let Event::NewListenAddr(addr) = event {
                     break_loop = true;
                     addr_to_send = Some(addr.clone());
                     break;
@@ -618,7 +615,7 @@ mod when_using_peer_to_peer_service {
         while !found_event {
             let log_read = logger.read().await;
             for event in &(*log_read).events {
-                if let LogEvent::SubscribedToTopic(subs) = event {
+                if let Event::SubscribedToTopic(subs) = event {
                     if subs.eq(&topic) {
                         found_event = true;
                     }
@@ -691,7 +688,7 @@ mod when_using_peer_to_peer_service {
                 let events = &(*first_client_log_read).events;
 
                 for event in events {
-                    if let LogEvent::PeerIdentified = event {
+                    if let Event::PeerIdentified = event {
                         connection_ok = true;
                         break;
                     }
@@ -734,7 +731,7 @@ mod when_using_peer_to_peer_service {
                 let events = &(*first_client_log_read).events;
 
                 for event in events {
-                    if let LogEvent::PeerIdentified = event {
+                    if let Event::PeerIdentified = event {
                         connection_ok = true;
                         break;
                     }
@@ -769,7 +766,7 @@ mod when_using_peer_to_peer_service {
             while !found_error {
                 let log_handler_read = log_handler_second_client.read().await;
                 for event in &(*log_handler_read).events {
-                    if let LogEvent::FailureToIdentifyPeer = event {
+                    if let Event::FailureToIdentifyPeer = event {
                         found_error = true;
                     }
                 }
@@ -796,7 +793,7 @@ mod when_using_peer_to_peer_service {
                 let events = &(*log_handler).events;
 
                 for event in events {
-                    if let LogEvent::SubscribedToTopic(_) = event {
+                    if let Event::SubscribedToTopic(_) = event {
                         found_event = true;
                     }
                 }

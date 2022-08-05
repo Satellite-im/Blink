@@ -1,0 +1,13 @@
+[package]
+name = "blink_contract"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.59"
+libp2p = { version = "0.46.1", features = ["tcp-tokio", "dns-tokio"] }
+async-trait = "0.1.57"
+sata = { git = "https://github.com/Satellite-im/Sata.git" }
+warp = { git = "https://github.com/Satellite-im/Warp.git", branch = "main" }

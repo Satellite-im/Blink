@@ -1,7 +1,6 @@
 use anyhow::Result;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
 use libp2p::identity::Keypair::Ed25519;
-use libp2p::{Multiaddr, PeerId};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use warp::crypto::DID;
@@ -36,29 +35,4 @@ fn libp2p_pub_to_did(public_key: &libp2p::identity::PublicKey) -> Result<DID> {
         _ => anyhow::bail!(Error::PublicKeyInvalid),
     };
     Ok(pk)
-}
-
-#[derive(Debug)]
-pub enum LogEvent {
-    DialSuccessful(String),
-    DialError(String),
-    ConvertKeyError,
-    SubscriptionError(String),
-    NewListenAddr(Multiaddr),
-    ErrorAddingToCache(Error),
-    ErrorDeserializingData,
-    ErrorSerializingData,
-    ErrorPublishingData(String),
-    SubscribedToTopic(String),
-    FailureToIdentifyPeer,
-    PeerIdentified,
-    FailedToSendMessage,
-    FailureToDisconnectPeer,
-    PeerConnectionClosed(PeerId),
-    ConnectionEstablished(PeerId),
-    TaskCancelled,
-}
-
-pub trait Logger: Send + Sync {
-    fn event_occurred(&mut self, event: LogEvent);
 }
