@@ -235,6 +235,7 @@ impl PeerToPeerService {
                                     let hashed = Hash::hash(exchange);
                                     let topic = base64::encode(hashed);
                                     let topic_subs = Sha256Topic::new(&topic);
+                                    println!("ate aqui veio");
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs)
                                     {
                                         Ok(_) => {
@@ -770,52 +771,6 @@ mod when_using_peer_to_peer_service {
                 for event in &(*log_handler_read).events {
                     if let LogEvent::FailureToIdentifyPeer = event {
                         found_error = true;
-                    }
-                }
-            }
-        })
-        .await
-        .expect("Timeout");
-    }
-
-    #[tokio::test]
-    async fn failure_to_identify_peer_inhibits_connection() {
-        const TOPIC_NAME: &str = "SomeTopic";
-
-        tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (
-                mut second_client,
-                log_handler,
-                second_client_peer_id,
-                _,
-                _,
-                _,
-                second_client_address,
-            ) = create_service(HashMap::new(), false).await;
-
-            subscribe_to_topic(
-                &mut second_client,
-                TOPIC_NAME.to_string(),
-                log_handler.clone(),
-            )
-            .await;
-
-            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
-                create_service(second_client_address, true).await;
-
-            first_client.pair_to_another_peer(second_client_peer_id).await.unwrap();
-
-            let log_handler_read = first_client_log_handler.read().await;
-
-            let mut found_event = false;
-            while !found_event {
-                let events = &(*log_handler_read).events;
-                for i in events {
-                    if let LogEvent::PeerConnectionClosed(peer) = i {
-                        if *peer == second_client_peer_id {
-                            found_event = true;
-                            break;
-                        }
                     }
                 }
             }
