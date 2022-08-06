@@ -57,13 +57,15 @@ async fn create_service() -> Arc<RwLock<PeerToPeerService>> {
     Arc::new(RwLock::new(p2p_service))
 }
 
-#[tokio::main]
-async fn main() {
-    let service = create_service().await;
-    let handle = handle_coming_messages(service.clone());
-
-    let mut command = String::new();
-    let read_from_stdin = stdin();
+fn create_command_map_handler() -> HashMap<
+    String,
+    Box<
+        dyn FnMut(
+            Arc<RwLock<PeerToPeerService>>,
+            Vec<String>,
+        ) -> Pin<Box<dyn Future<Output = ()>>>,
+    >,
+> {
     let mut map_command: HashMap<
         String,
         Box<
@@ -71,9 +73,8 @@ async fn main() {
                 Arc<RwLock<PeerToPeerService>>,
                 Vec<String>,
             ) -> Pin<Box<dyn Future<Output = ()>>>,
-        >,
-    > = HashMap::new();
-    let quit = "quit".to_string();
+        >> = HashMap::new();
+
     map_command.insert(
         "pair".to_string(),
         Box::new(
@@ -154,6 +155,18 @@ async fn main() {
             },
         ),
     );
+
+    map_command
+}
+
+#[tokio::main]
+async fn main() {
+    let service = create_service().await;
+    let handle = handle_coming_messages(service.clone());
+    let mut map_command = create_command_map_handler();
+    let mut command = String::new();
+    let read_from_stdin = stdin();
+    let quit = "quit".to_string();
 
     while command != quit {
         println!("Type your command");
