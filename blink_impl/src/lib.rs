@@ -7,5 +7,3 @@ use sata::Sata;
 use warp::crypto::DID;
 
 pub mod peer_to_peer_service;
-
-

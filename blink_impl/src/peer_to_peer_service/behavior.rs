@@ -1,9 +1,20 @@
+use anyhow::{anyhow, Result};
+use libp2p::gossipsub::{
+    Gossipsub, GossipsubMessage, MessageAuthenticity, MessageId, ValidationMode,
+};
+use libp2p::{
+    gossipsub,
+    gossipsub::GossipsubEvent,
+    identify::{Identify, IdentifyConfig, IdentifyEvent},
+    identity::Keypair,
+    kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
+    mdns::{Mdns, MdnsEvent},
+    relay::v2::relay::{Event, Relay},
+    NetworkBehaviour, PeerId,
+};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use anyhow::{anyhow, Result};
-use libp2p::{gossipsub::GossipsubEvent, identify::{Identify, IdentifyConfig, IdentifyEvent}, identity::Keypair, kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent}, mdns::{Mdns, MdnsEvent}, relay::v2::relay::{Event, Relay}, NetworkBehaviour, PeerId, gossipsub};
 use std::time::Duration;
-use libp2p::gossipsub::{Gossipsub, GossipsubMessage, MessageAuthenticity, MessageId, ValidationMode};
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 

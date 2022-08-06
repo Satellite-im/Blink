@@ -7,7 +7,7 @@ use warp::crypto::DID;
 use warp::error::Error;
 
 mod behavior;
-mod peer_to_peer_service;
+pub mod peer_to_peer_service;
 
 pub type CancellationToken = Arc<AtomicBool>;
 

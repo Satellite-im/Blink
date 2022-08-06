@@ -6,3 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+blink_contract = { path = "../blink_contract" }
+blink_impl = { path = "../blink_impl" }
+libp2p = { version = "0.46.1", features = ["tcp-tokio", "dns-tokio"] }
+anyhow = "1.0.59"
+tokio = { version =  "1.20.1", features = ["full"] }
+async-trait = "0.1.56"
+sata = { git = "https://github.com/Satellite-im/Sata.git" }
+warp = { git = "https://github.com/Satellite-im/Warp.git", branch = "main" }
+bincode = "1.3.3"
+did-key = "0.1.1"
+base64 = "0.13.0"
+hmac-sha512 = "1.1.2"

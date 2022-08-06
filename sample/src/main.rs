@@ -1,3 +1,170 @@
-fn main() {
-    println!("Hello, world!");
+use crate::did_key::Ed25519KeyPair;
+use crate::trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl};
+use anyhow::Result;
+use blink_impl::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
+use libp2p::Multiaddr;
+use sata::{Kind, Sata};
+use std::collections::HashMap;
+use std::future::Future;
+use std::io::stdin;
+use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use sata::error::Error;
+use sata::libipld::IpldCodec;
+use tokio::main;
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+use warp::crypto::{did_key, DID};
+
+mod trait_impl;
+
+fn handle_coming_messages(service: Arc<RwLock<PeerToPeerService>>) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        loop {
+            let mut service_read = service.write().await;
+            let message = service_read.messages_channel.recv().await;
+
+            if let Some(message_content) = message {
+                println!(
+                    "Message arrived, topic hash: {}, message content: {}",
+                    message_content.0.to_string(),
+                    message_content.1.id().to_string()
+                );
+            }
+        }
+    });
+
+    handle
+}
+
+async fn create_service() -> Arc<RwLock<PeerToPeerService>> {
+    let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
+        None,
+    ))));
+    let cancellation_token = Arc::new(AtomicBool::new(false));
+    let cache = Arc::new(RwLock::new(PocketDimensionImpl::default()));
+    let log_handler = Arc::new(RwLock::new(EventHandlerImpl::default()));
+    let multi_pass = Arc::new(RwLock::new(MultiPassImpl::default()));
+
+    let mut p2p_service = PeerToPeerService::new(
+        id_keys.clone(),
+        "/ip4/0.0.0.0/tcp/0",
+        None,
+        cache.clone(),
+        multi_pass.clone(),
+        log_handler.clone(),
+        cancellation_token.clone(),
+    )
+    .await
+    .unwrap();
+
+    Arc::new(RwLock::new(p2p_service))
+}
+
+#[tokio::main]
+async fn main() {
+    let service = create_service().await;
+    let handle = handle_coming_messages(service.clone());
+
+    let mut command = String::new();
+    let read_from_stdin = stdin();
+    let mut map_command : HashMap<String, Box<dyn FnMut(Arc<RwLock<PeerToPeerService>>, Vec<String>) -> Pin<Box<dyn Future<Output=()>>>>> = HashMap::new();
+    let quit = "quit".to_string();
+    map_command.insert(
+        "pair".to_string(),
+        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
+            if args.len() == 1 {
+                let addr = args[0].parse::<Multiaddr>();
+                match addr {
+                    Ok(x) => {
+                        let mut service_write = service.write().await;
+                        match service_write.pair_to_another_peer(x.into()).await {
+                            Ok(_) => {
+                                println!("Sucess sending pairing request");
+                            }
+                            Err(_) => {
+                                println!("Failure sending pairing request");
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        println!("Failed to parse address");
+                    }
+                }
+            } else {
+                println!("pair peer_address");
+            }
+        },
+    )));
+
+    map_command.insert(
+        "subscribe".to_string(),
+        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
+            if args.len() != 1 {
+                let mut service_write = service.write().await;
+                match service_write.subscribe_to_topic(args[0].clone()).await {
+                    Ok(_) => {
+                        println!("Success sending topic subscription");
+                    }
+                    Err(_) => {
+                        println!("Failure to send topic subscription");
+                    }
+                }
+            } else {
+                println!("subscribe topic");
+            }
+        }
+    )));
+
+    map_command.insert(
+        "publish".to_string(),
+        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
+            if args.len() != 2 {
+                let mut service_write = service.write().await;
+                let mut sata = Sata::default();
+                match service_write.publish_message_to_topic(args[0].clone(), sata).await {
+                    Ok(_) => {
+                        println!("Success sending publish message request");
+                    }
+                    Err(_) => {
+                        println!("Failure sending publish message request");
+                    }
+                }
+            } else {
+                println!("publish topic content")
+            }
+        })));
+
+    while command != quit {
+        println!("Type your command");
+        if let Ok(_) = read_from_stdin.read_line(&mut command) {
+            let words: Vec<String> = command
+                .split(' ')
+                .map(|item| {
+                    let chars: Vec<char> = item.chars().collect();
+
+                    if chars[chars.len() - 1] == '\n' {
+                        chars[..chars.len() - 1].into_iter().collect()
+                    } else {
+                        chars.into_iter().collect()
+                    }
+                })
+                .collect();
+            if words.len() < 1 {
+                println!("Invalid command");
+                continue;
+            }
+
+            if let Some(function) = map_command.get_mut(&words[0]) {
+                function(service.clone(), (&words[1..]).to_vec()).await;
+            } else {
+                println!("Invalid command");
+            }
+
+            command.clear();
+        }
+    }
+
+    handle.abort();
 }
