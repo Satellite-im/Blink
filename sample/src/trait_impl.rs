@@ -1,14 +1,22 @@
 use blink_contract::{Event, EventBus};
 use sata::Sata;
-use warp::crypto::DID;
-use warp::data::DataType;
-use warp::error::Error;
-use warp::module::Module;
-use warp::multipass::identity::{Identifier, Identity, IdentityUpdate};
-use warp::multipass::{Friends, MultiPass};
-use warp::pocket_dimension::query::QueryBuilder;
-use warp::pocket_dimension::PocketDimension;
-use warp::{Extension, SingleHandle};
+use warp::{
+    error::Error,
+    data::DataType,
+    crypto::DID,
+    module::Module,
+    multipass::{
+        identity::{Identifier, Identity, IdentityUpdate},
+        Friends,
+        MultiPass
+    },
+    pocket_dimension::{
+        query::QueryBuilder,
+        PocketDimension
+    },
+    Extension,
+    SingleHandle
+};
 
 #[derive(Default)]
 pub struct MultiPassImpl {}
@@ -22,25 +30,57 @@ pub struct EventHandlerImpl {}
 impl EventBus for EventHandlerImpl {
     fn event_occurred(&mut self, event: Event) {
         match event {
-            Event::DialSuccessful(_) => {}
-            Event::DialError(_) => {}
-            Event::ConvertKeyError => {}
-            Event::SubscriptionError(_) => {}
-            Event::NewListenAddr(x) => {
-                println!("NewListenAddr {}", x.to_string());
+            Event::DialSuccessful(x) => {
+                println!("Event: Successfully dialed {}", x);
             }
-            Event::ErrorAddingToCache(_) => {}
-            Event::ErrorDeserializingData => {}
-            Event::ErrorSerializingData => {}
-            Event::ErrorPublishingData(_) => {}
-            Event::SubscribedToTopic(_) => {}
-            Event::FailureToIdentifyPeer => {}
-            Event::PeerIdentified => {}
-            Event::FailedToSendMessage => {}
-            Event::FailureToDisconnectPeer => {}
-            Event::PeerConnectionClosed(_) => {}
-            Event::ConnectionEstablished(_) => {}
-            Event::TaskCancelled => {}
+            Event::DialError(x) => {
+                println!("Event: Error dialing {}", x);
+            }
+            Event::ConvertKeyError => {
+                println!("Event: Converting key error");
+            }
+            Event::SubscriptionError(x) => {
+                println!("Event: Subscription error {}", x);
+            }
+            Event::NewListenAddr(x) => {
+                println!("Event: NewListenAddr {}", x.to_string());
+            }
+            Event::ErrorAddingToCache(x) => {
+                println!("Event: Error adding to cache {}", x);
+            }
+            Event::ErrorDeserializingData => {
+                println!("Event: Error deserializing data");
+            }
+            Event::ErrorSerializingData => {
+                println!("Event: Error serializing data");
+            }
+            Event::ErrorPublishingData(x) => {
+                println!("Event: Error publishing data {}", x);
+            }
+            Event::SubscribedToTopic(x) => {
+                println!("Event: Subscribed to topic {}", x);
+            }
+            Event::FailureToIdentifyPeer => {
+                println!("Event: Failure to identify peer");
+            }
+            Event::PeerIdentified => {
+                println!("Event: Peer identified");
+            }
+            Event::FailedToSendMessage => {
+                println!("Event: Failure to send message");
+            }
+            Event::FailureToDisconnectPeer => {
+                println!("Event: Failure to disconnect from peer");
+            }
+            Event::PeerConnectionClosed(x) => {
+                println!("Event: Peer connection closed {}", x);
+            }
+            Event::ConnectionEstablished(x) => {
+                println!("Event: Connection established {}", x);
+            }
+            Event::TaskCancelled => {
+                println!("Event: Task cancelled");
+            }
         }
     }
 }
@@ -119,7 +159,7 @@ impl MultiPass for MultiPassImpl {
     }
 
     fn get_identity(&self, id: Identifier) -> Result<Identity, Error> {
-        todo!()
+        return Ok(Identity::default());
     }
 
     fn update_identity(&mut self, option: IdentityUpdate) -> Result<(), Error> {

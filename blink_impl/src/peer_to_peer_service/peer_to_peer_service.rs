@@ -241,7 +241,6 @@ impl PeerToPeerService {
                                     let hashed = Hash::hash(exchange);
                                     let topic = base64::encode(hashed);
                                     let topic_subs = Sha256Topic::new(&topic);
-                                    println!("ate aqui veio");
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
                                             let mut log = logger.write().await;

@@ -1,20 +1,15 @@
-use crate::did_key::Ed25519KeyPair;
-use crate::trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl};
+use crate::{
+    did_key::Ed25519KeyPair,
+    trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
+};
 use anyhow::Result;
 use blink_impl::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
 use libp2p::Multiaddr;
-use sata::{Kind, Sata};
-use std::collections::HashMap;
-use std::future::Future;
-use std::io::stdin;
-use std::pin::Pin;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use sata::error::Error;
-use sata::libipld::IpldCodec;
-use tokio::main;
-use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
+use sata::{error::Error, libipld::IpldCodec, Kind, Sata};
+use std::{
+    collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
+};
+use tokio::{main, sync::RwLock, task::JoinHandle};
 use warp::crypto::{did_key, DID};
 
 mod trait_impl;
@@ -69,72 +64,96 @@ async fn main() {
 
     let mut command = String::new();
     let read_from_stdin = stdin();
-    let mut map_command : HashMap<String, Box<dyn FnMut(Arc<RwLock<PeerToPeerService>>, Vec<String>) -> Pin<Box<dyn Future<Output=()>>>>> = HashMap::new();
+    let mut map_command: HashMap<
+        String,
+        Box<
+            dyn FnMut(
+                Arc<RwLock<PeerToPeerService>>,
+                Vec<String>,
+            ) -> Pin<Box<dyn Future<Output = ()>>>,
+        >,
+    > = HashMap::new();
     let quit = "quit".to_string();
     map_command.insert(
         "pair".to_string(),
-        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
-            if args.len() == 1 {
-                let addr = args[0].parse::<Multiaddr>();
-                match addr {
-                    Ok(x) => {
-                        let mut service_write = service.write().await;
-                        match service_write.pair_to_another_peer(x.into()).await {
-                            Ok(_) => {
-                                println!("Sucess sending pairing request");
+        Box::new(
+            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
+                Box::pin(async move {
+                    if args.len() == 1 {
+                        let addr = args[0].parse::<Multiaddr>();
+                        match addr {
+                            Ok(x) => {
+                                let mut service_write = service.write().await;
+                                match service_write.pair_to_another_peer(x.into()).await {
+                                    Ok(_) => {
+                                        println!("Sucess sending pairing request");
+                                    }
+                                    Err(_) => {
+                                        println!("Failure sending pairing request");
+                                    }
+                                }
                             }
                             Err(_) => {
-                                println!("Failure sending pairing request");
+                                println!("Failed to parse address");
                             }
                         }
+                    } else {
+                        println!("pair peer_address");
                     }
-                    Err(_) => {
-                        println!("Failed to parse address");
-                    }
-                }
-            } else {
-                println!("pair peer_address");
-            }
-        },
-    )));
+                })
+            },
+        ),
+    );
 
     map_command.insert(
         "subscribe".to_string(),
-        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
-            if args.len() != 1 {
-                let mut service_write = service.write().await;
-                match service_write.subscribe_to_topic(args[0].clone()).await {
-                    Ok(_) => {
-                        println!("Success sending topic subscription");
+        Box::new(
+            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
+                Box::pin(async move {
+                    if args.len() == 1 {
+                        let mut service_write = service.write().await;
+                        match service_write.subscribe_to_topic(args[0].clone()).await {
+                            Ok(_) => {
+                                println!("Success sending topic subscription");
+                            }
+                            Err(_) => {
+                                println!("Failure to send topic subscription");
+                            }
+                        }
+                    } else {
+                        println!("subscribe topic");
                     }
-                    Err(_) => {
-                        println!("Failure to send topic subscription");
-                    }
-                }
-            } else {
-                println!("subscribe topic");
-            }
-        }
-    )));
+                })
+            },
+        ),
+    );
 
     map_command.insert(
         "publish".to_string(),
-        Box::new(|service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| Box::pin(async move {
-            if args.len() != 2 {
-                let mut service_write = service.write().await;
-                let mut sata = Sata::default();
-                match service_write.publish_message_to_topic(args[0].clone(), sata).await {
-                    Ok(_) => {
-                        println!("Success sending publish message request");
+        Box::new(
+            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
+                Box::pin(async move {
+                    if args.len() == 2 {
+                        let mut service_write = service.write().await;
+                        let mut sata = Sata::default();
+                        match service_write
+                            .publish_message_to_topic(args[0].clone(), sata)
+                            .await
+                        {
+                            Ok(_) => {
+                                println!("Success sending publish message request");
+                            }
+                            Err(_) => {
+                                println!("Failure sending publish message request");
+                            }
+                        }
+                    } else {
+                        println!("publish topic content")
                     }
-                    Err(_) => {
-                        println!("Failure sending publish message request");
-                    }
-                }
-            } else {
-                println!("publish topic content")
-            }
-        })));
+                })
+            },
+        ),
+    );
 
     while command != quit {
         println!("Type your command");
