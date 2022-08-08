@@ -75,7 +75,7 @@ impl Drop for PeerToPeerService {
 
 impl PeerToPeerService {
     pub async fn new(
-        did_key: Arc<RwLock<DID>>,
+        did_key: Arc<DID>,
         address_to_listen: &str,
         initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
         cache: Arc<RwLock<impl PocketDimension + 'static>>,
@@ -83,10 +83,7 @@ impl PeerToPeerService {
         logger: Arc<RwLock<impl EventBus + 'static>>,
         cancellation_token: CancellationToken,
     ) -> Result<(Self, Receiver<MessageContent>)> {
-        let key_pair = {
-            let did_read = did_key.read().await;
-            did_keypair_to_libp2p_keypair((*did_read).as_ref())?
-        };
+        let key_pair = did_keypair_to_libp2p_keypair((*did_key).as_ref())?;
         let pub_key = key_pair.public();
         let peer_id = PeerId::from(&pub_key);
         let mut swarm = Self::create_swarm(&key_pair, &peer_id).await?;
@@ -204,7 +201,7 @@ impl PeerToPeerService {
         logger: Arc<RwLock<impl EventBus>>,
         multi_pass: Arc<RwLock<impl MultiPass>>,
         message_sender: &Sender<MessageContent>,
-        did: Arc<RwLock<DID>>,
+        did: Arc<DID>,
     ) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(event)) => match event {
@@ -233,9 +230,8 @@ impl PeerToPeerService {
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
-                                    let private_read = did.read().await;
                                     let private_key_pair = Ed25519KeyPair::from_secret_key(
-                                        &(*private_read).as_ref().private_key_bytes(),
+                                        &(*did).as_ref().private_key_bytes(),
                                     )
                                     .get_x25519();
                                     let public_key_pair = Ed25519KeyPair::from_public_key(
@@ -553,17 +549,14 @@ mod when_using_peer_to_peer_service {
         PeerId,
         Arc<RwLock<TestCache>>,
         Arc<RwLock<MultiPassImpl>>,
-        Arc<RwLock<DID>>,
+        Arc<DID>,
         HashMap<PeerId, Multiaddr>,
         Receiver<MessageContent>
     ) {
-        let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
+        let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
             None,
-        ))));
-        let key_pair = {
-            let id_read = id_keys.read().await;
-            did_keypair_to_libp2p_keypair((*id_read).as_ref()).unwrap()
-        };
+        )));
+        let key_pair = did_keypair_to_libp2p_keypair((*id_keys).as_ref()).unwrap();
         let peer_id = PeerId::from(key_pair.public());
         let cancellation_token = Arc::new(AtomicBool::new(false));
         let cache = Arc::new(RwLock::new(TestCache::default()));
