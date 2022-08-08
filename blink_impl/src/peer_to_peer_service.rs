@@ -398,8 +398,7 @@ impl PeerToPeerService {
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
-    use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
-    use crate::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
+    use crate::peer_to_peer_service::{did_keypair_to_libp2p_keypair, MessageContent, PeerToPeerService};
     use blink_contract::{Event, EventBus};
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
