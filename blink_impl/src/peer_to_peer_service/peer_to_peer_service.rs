@@ -1,42 +1,51 @@
-use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
 use crate::{
+    peer_to_peer_service::did_keypair_to_libp2p_keypair,
     peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior},
-    peer_to_peer_service::{libp2p_pub_to_did, CancellationToken},
+    peer_to_peer_service::{libp2p_pub_to_did, CancellationToken}
 };
 use anyhow::Result;
 use blink_contract::{Event, EventBus};
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
-use libp2p::gossipsub::{Sha256Topic, TopicHash};
-use libp2p::mdns::MdnsEvent;
-use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::{
+    gossipsub::{Sha256Topic, TopicHash},
+    mdns::MdnsEvent,
+    swarm::dial_opts::DialOpts,
     core::transport::upgrade,
     futures::StreamExt,
     gossipsub::GossipsubEvent,
     identify::IdentifyEvent,
     identity::Keypair,
     kad::{KademliaEvent, QueryResult},
-    mplex, noise,
+    mplex,
+    noise,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     tcp::{GenTcpConfig, TokioTcpTransport},
-    Multiaddr, PeerId, Swarm, Transport,
+    Multiaddr,
+    PeerId,
+    Swarm,
+    Transport
 };
 use sata::Sata;
 use std::{
     collections::HashMap,
     sync::{atomic::Ordering, Arc},
 };
-use tokio::sync::mpsc::Receiver;
 use tokio::{
-    sync::{mpsc::Sender, RwLock},
-    task::JoinHandle,
+    sync::{
+        mpsc::{
+            Receiver,
+            Sender
+        },
+        RwLock
+    },
+    task::JoinHandle
 };
-use warp::crypto::DID;
 use warp::{
+    crypto::DID,
     data::DataType,
     multipass::{identity::Identifier, MultiPass},
-    pocket_dimension::PocketDimension,
+    pocket_dimension::PocketDimension
 };
 
 pub type TopicName = String;
