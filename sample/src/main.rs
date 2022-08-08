@@ -3,22 +3,22 @@ use crate::{
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
 use anyhow::Result;
-use blink_impl::peer_to_peer_service::peer_to_peer_service::PeerToPeerService;
+use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
 use sata::{error::Error, libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
 use tokio::{main, sync::RwLock, task::JoinHandle};
+use tokio::sync::mpsc::Receiver;
 use warp::crypto::{did_key, DID};
 
 mod trait_impl;
 
-fn handle_coming_messages(service: Arc<RwLock<PeerToPeerService>>) -> JoinHandle<()> {
+fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<()> {
     let handle = tokio::spawn(async move {
         loop {
-            let mut service_read = service.write().await;
-            let message = service_read.messages_channel.recv().await;
+            let message = receiver.recv().await;
 
             if let Some(message_content) = message {
                 println!(
@@ -33,7 +33,7 @@ fn handle_coming_messages(service: Arc<RwLock<PeerToPeerService>>) -> JoinHandle
     handle
 }
 
-async fn create_service() -> Arc<RwLock<PeerToPeerService>> {
+async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
     let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
         None,
     ))));
@@ -42,7 +42,7 @@ async fn create_service() -> Arc<RwLock<PeerToPeerService>> {
     let log_handler = Arc::new(RwLock::new(EventHandlerImpl::default()));
     let multi_pass = Arc::new(RwLock::new(MultiPassImpl::default()));
 
-    let mut p2p_service = PeerToPeerService::new(
+    let result = PeerToPeerService::new(
         id_keys.clone(),
         "/ip4/0.0.0.0/tcp/0",
         None,
@@ -54,7 +54,7 @@ async fn create_service() -> Arc<RwLock<PeerToPeerService>> {
     .await
     .unwrap();
 
-    Arc::new(RwLock::new(p2p_service))
+    result
 }
 
 fn create_command_map_handler() -> HashMap<
@@ -112,7 +112,7 @@ fn create_command_map_handler() -> HashMap<
             |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
                 Box::pin(async move {
                     if args.len() == 1 {
-                        let mut service_write = service.write().await;
+                        let service_write = service.write().await;
                         match service_write.subscribe_to_topic(args[0].clone()).await {
                             Ok(_) => {
                                 println!("Success sending topic subscription");
@@ -136,8 +136,8 @@ fn create_command_map_handler() -> HashMap<
                 Box::pin(async move {
                     if args.len() == 2 {
                         let mut service_write = service.write().await;
-                        let mut sata = Sata::default();
-                        let result = sata.encode(IpldCodec::Raw, Kind::Dynamic, args[1].clone());
+                        let sata = Sata::default();
+                        let result = sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
                         if result.is_ok() {
                             match service_write
                                 .publish_message_to_topic(args[0].clone(), result.unwrap())
@@ -166,8 +166,9 @@ fn create_command_map_handler() -> HashMap<
 
 #[tokio::main]
 async fn main() {
-    let service = create_service().await;
-    let handle = handle_coming_messages(service.clone());
+    let (service_int, rx) = create_service().await;
+    let service = Arc::new(RwLock::new(service_int));
+    let handle = handle_coming_messages(rx);
     let mut map_command = create_command_map_handler();
     let mut command = String::new();
     let read_from_stdin = stdin();

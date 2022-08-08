@@ -55,7 +55,6 @@ pub enum BlinkCommand {
 
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
-    pub messages_channel: Receiver<MessageContent>,
     task_handle: JoinHandle<()>,
 }
 
@@ -74,7 +73,7 @@ impl PeerToPeerService {
         multi_pass: Arc<RwLock<impl MultiPass + 'static>>,
         logger: Arc<RwLock<impl EventBus + 'static>>,
         cancellation_token: CancellationToken,
-    ) -> Result<Self> {
+    ) -> Result<(Self, Receiver<MessageContent>)> {
         let key_pair = {
             let did_read = did_key.read().await;
             did_keypair_to_libp2p_keypair((*did_read).as_ref())?
@@ -120,11 +119,10 @@ impl PeerToPeerService {
             }
         });
 
-        Ok(Self {
+        Ok((Self {
             command_channel: command_tx,
-            task_handle: handler,
-            messages_channel: message_rx,
-        })
+            task_handle: handler
+        }, message_rx))
     }
 
     async fn handle_command(
@@ -248,7 +246,6 @@ impl PeerToPeerService {
                                             (*log).event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
-                                            println!("Erro");
                                             let mut log = logger.write().await;
                                             (*log).event_occurred(Event::SubscriptionError(
                                                 er.to_string(),
@@ -257,7 +254,6 @@ impl PeerToPeerService {
                                     }
                                 }
                                 Err(_) => {
-                                    println!("Erro");
                                     let mut log = logger.write().await;
                                     (*log).event_occurred(Event::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
@@ -267,7 +263,6 @@ impl PeerToPeerService {
                             }
                         }
                         Err(_) => {
-                            println!("Erro");
                             let mut log = logger.write().await;
                             (*log).event_occurred(Event::ConvertKeyError);
                         }
@@ -279,7 +274,6 @@ impl PeerToPeerService {
             },
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => match gsp {
                 GossipsubEvent::Message { message, .. } => {
-                    println!("message arrived");
                     let message_data = message.data;
                     let data = bincode::deserialize::<Sata>(&message_data);
                     match data {
@@ -333,12 +327,10 @@ impl PeerToPeerService {
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                println!("Connection established");
                 let mut log_service = logger.write().await;
                 (*log_service).event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                println!("connection closed");
                 let mut log_service = logger.write().await;
                 (*log_service).event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
             }

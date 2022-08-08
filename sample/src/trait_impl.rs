@@ -1,5 +1,10 @@
+use std::fmt::format;
+use std::fs::File;
+use std::time::{SystemTime, UNIX_EPOCH};
+use anyhow::anyhow;
 use blink_contract::{Event, EventBus};
 use sata::Sata;
+use std::io::Write;
 use warp::{
     error::Error,
     data::DataType,
@@ -103,7 +108,16 @@ impl SingleHandle for PocketDimensionImpl {}
 
 impl PocketDimension for PocketDimensionImpl {
     fn add_data(&mut self, dimension: DataType, data: &Sata) -> Result<(), Error> {
-        todo!()
+        let mut path = std::env::temp_dir();
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap().as_secs();
+        path.push(format!("{}.txt", time));
+
+        let res = std::str::from_utf8(&data.data()).map_err(|x| anyhow!(x))?.to_string();
+        let mut output = File::create(path)?;
+        write!(output, "{}", res)?;
+        Ok(())
     }
 
     fn has_data(&mut self, dimension: DataType, query: &QueryBuilder) -> Result<(), Error> {
