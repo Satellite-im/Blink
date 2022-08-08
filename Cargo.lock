@@ -3535,14 +3535,9 @@ name = "sample"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "base64 0.13.0",
- "bincode",
  "blink_contract",
  "blink_impl",
- "did-key",
  "env_logger",
- "hmac-sha512",
  "libp2p",
  "log",
  "sata",
