@@ -137,16 +137,21 @@ fn create_command_map_handler() -> HashMap<
                     if args.len() == 2 {
                         let mut service_write = service.write().await;
                         let mut sata = Sata::default();
-                        match service_write
-                            .publish_message_to_topic(args[0].clone(), sata)
-                            .await
-                        {
-                            Ok(_) => {
-                                println!("Success sending publish message request");
+                        let result = sata.encode(IpldCodec::Raw, Kind::Dynamic, args[1].clone());
+                        if result.is_ok() {
+                            match service_write
+                                .publish_message_to_topic(args[0].clone(), result.unwrap())
+                                .await
+                            {
+                                Ok(_) => {
+                                    println!("Success sending publish message request");
+                                }
+                                Err(_) => {
+                                    println!("Failure sending publish message request");
+                                }
                             }
-                            Err(_) => {
-                                println!("Failure sending publish message request");
-                            }
+                        } else {
+                            println!("Error encoding data");
                         }
                     } else {
                         println!("publish topic content")
