@@ -394,6 +394,10 @@ impl PeerToPeerService {
             .await?;
         Ok(())
     }
+
+    pub async fn send(&mut self, sata: Sata) -> Result<()> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -402,8 +406,9 @@ mod when_using_peer_to_peer_service {
     use blink_contract::{Event, EventBus};
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
-    use sata::Sata;
+    use sata::{Kind, Sata};
     use std::{collections::HashMap, sync::atomic::AtomicBool, sync::Arc, time::Duration};
+    use sata::libipld::IpldCodec;
     use tokio::sync::mpsc::Receiver;
     use tokio::sync::RwLock;
     use warp::{
@@ -624,6 +629,51 @@ mod when_using_peer_to_peer_service {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn send_message_sends_it_to_every_recipient() {
+        const MESSAGE_CONTENTS: &str = "Test";
+        tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
+            let (service_a, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver) = create_service(HashMap::new(), true).await;
+            let (service_b, _, b_peer_id, _, _, did_b, service_b_address, mut b_receiver) = create_service(HashMap::new(), true).await;
+            service_a_address.extend(service_b_address.into_iter());
+            let (mut service_c, _, _, _, _, _, _, _) = create_service(service_a_address, true).await;
+
+            service_c.pair_to_another_peer(a_peer_id.into()).await.unwrap();
+            service_c.pair_to_another_peer(b_peer_id.into()).await.unwrap();
+
+            let mut sata = Sata::default();
+            {
+                let a_read = did_a.read().await;
+                let b_read = did_b.read().await;
+                sata.add_recipient((*a_read).as_ref()).unwrap();
+                sata.add_recipient((*b_read).as_ref()).unwrap();
+            }
+            let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, MESSAGE_CONTENTS.to_string()).unwrap();
+            assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
+
+            service_c.send(to_send).await.unwrap();
+
+            let (mut a_found, mut b_found) = (false, false);
+            while !a_found {
+                let mes = a_receiver.recv().await.unwrap();
+                let content = std::str::from_utf8(&mes.1.data()).unwrap().to_string();
+                if content.eq(&MESSAGE_CONTENTS.to_string()) {
+                    a_found = true;
+                }
+            }
+
+            while !b_found {
+                let mes = b_receiver.recv().await.unwrap();
+                let content = std::str::from_utf8(&mes.1.data()).unwrap().to_string();
+                if content.eq(&MESSAGE_CONTENTS.to_string()) {
+                    b_found = true;
+                }
+            }
+        })
+            .await
+            .expect("Timeout");
     }
 
     #[tokio::test]
