@@ -2,17 +2,19 @@ use crate::{
     did_key::Ed25519KeyPair,
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
-use anyhow::Result;
 use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
-use sata::{error::Error, libipld::IpldCodec, Kind, Sata};
+use sata::{libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
-use tokio::{main, sync::RwLock, task::JoinHandle};
-use tokio::sync::mpsc::Receiver;
+use tokio::{
+    sync::RwLock,
+    task::JoinHandle,
+    sync::mpsc::Receiver
+};
 use warp::crypto::{did_key, DID};
-use log::{debug, error, log_enabled, info, Level};
+use log::{error, info};
 
 mod trait_impl;
 

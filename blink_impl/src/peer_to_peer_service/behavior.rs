@@ -12,9 +12,11 @@ use libp2p::{
     relay::v2::relay::{Event, Relay},
     NetworkBehaviour, PeerId,
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::Duration;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    time::Duration
+};
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 

@@ -174,7 +174,6 @@ impl PeerToPeerService {
                         if let Err(err) =
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
-                            dbg!(&err);
                             let mut log_service = logger.write().await;
                             (*log_service)
                                 .event_occurred(Event::ErrorPublishingData(err.to_string()));
@@ -215,7 +214,6 @@ impl PeerToPeerService {
             },
             SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) => match identify {
                 IdentifyEvent::Received { peer_id, info } => {
-                    dbg!(&"Identify came in");
                     let did_result = libp2p_pub_to_did(&info.public_key);
 
                     match did_result {

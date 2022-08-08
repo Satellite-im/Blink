@@ -1,24 +1,19 @@
 use anyhow::Result;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
 use libp2p::identity::Keypair::Ed25519;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use warp::crypto::DID;
-use warp::error::Error;
+use std::{
+    sync::atomic::AtomicBool,
+    sync::Arc
+};
+use warp::{
+    crypto::DID,
+    error::Error
+};
 
 mod behavior;
 pub mod peer_to_peer_service;
 
 pub type CancellationToken = Arc<AtomicBool>;
-
-fn did_to_libp2p_pub(public_key: &DID) -> Result<libp2p::identity::PublicKey> {
-    let did = public_key.clone();
-    let did: DIDKey = did.try_into()?;
-    let pk = libp2p::identity::PublicKey::Ed25519(libp2p::identity::ed25519::PublicKey::decode(
-        &did.public_key_bytes(),
-    )?);
-    Ok(pk)
-}
 
 fn did_keypair_to_libp2p_keypair(key_pair: &DIDKey) -> Result<libp2p::identity::Keypair> {
     let private = key_pair.private_key_bytes();

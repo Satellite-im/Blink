@@ -1,11 +1,10 @@
-use std::fmt::format;
 use std::fs::File;
 use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::anyhow;
 use blink_contract::{Event, EventBus};
 use sata::Sata;
 use std::io::Write;
-use log::{debug, error, log_enabled, info, Level};
+use log::info;
 use warp::{
     error::Error,
     data::DataType,
@@ -108,7 +107,7 @@ impl Extension for PocketDimensionImpl {
 impl SingleHandle for PocketDimensionImpl {}
 
 impl PocketDimension for PocketDimensionImpl {
-    fn add_data(&mut self, dimension: DataType, data: &Sata) -> Result<(), Error> {
+    fn add_data(&mut self, _: DataType, data: &Sata) -> Result<(), Error> {
         let mut path = std::env::temp_dir();
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -123,27 +122,27 @@ impl PocketDimension for PocketDimensionImpl {
         Ok(())
     }
 
-    fn has_data(&mut self, dimension: DataType, query: &QueryBuilder) -> Result<(), Error> {
+    fn has_data(&mut self, _: DataType, _: &QueryBuilder) -> Result<(), Error> {
         todo!()
     }
 
     fn get_data(
         &self,
-        dimension: DataType,
-        query: Option<&QueryBuilder>,
+        _: DataType,
+        _: Option<&QueryBuilder>,
     ) -> Result<Vec<Sata>, Error> {
         todo!()
     }
 
-    fn size(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+    fn size(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<i64, Error> {
         todo!()
     }
 
-    fn count(&self, dimension: DataType, query: Option<&QueryBuilder>) -> Result<i64, Error> {
+    fn count(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<i64, Error> {
         todo!()
     }
 
-    fn empty(&mut self, dimension: DataType) -> Result<(), Error> {
+    fn empty(&mut self, _: DataType) -> Result<(), Error> {
         todo!()
     }
 }
@@ -169,21 +168,21 @@ impl Extension for MultiPassImpl {
 impl MultiPass for MultiPassImpl {
     fn create_identity(
         &mut self,
-        username: Option<&str>,
-        passphrase: Option<&str>,
+        _: Option<&str>,
+        _: Option<&str>,
     ) -> Result<DID, Error> {
         todo!()
     }
 
-    fn get_identity(&self, id: Identifier) -> Result<Identity, Error> {
+    fn get_identity(&self, _: Identifier) -> Result<Identity, Error> {
         return Ok(Identity::default());
     }
 
-    fn update_identity(&mut self, option: IdentityUpdate) -> Result<(), Error> {
+    fn update_identity(&mut self, _: IdentityUpdate) -> Result<(), Error> {
         todo!()
     }
 
-    fn decrypt_private_key(&self, passphrase: Option<&str>) -> Result<DID, Error> {
+    fn decrypt_private_key(&self, _: Option<&str>) -> Result<DID, Error> {
         todo!()
     }
 
