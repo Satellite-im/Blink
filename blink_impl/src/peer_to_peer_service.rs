@@ -4,7 +4,7 @@ use crate::{
 };
 use anyhow::Result;
 use blink_contract::{Event, EventBus};
-use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
+use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH, DIDKey};
 use hmac_sha512::Hash;
 use libp2p::{
     core::transport::upgrade,
@@ -57,6 +57,7 @@ pub enum BlinkCommand {
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
     task_handle: JoinHandle<()>,
+    map_peer_topic: Arc<RwLock<HashMap<DIDKey, String>>>
 }
 
 impl Drop for PeerToPeerService {
@@ -124,6 +125,7 @@ impl PeerToPeerService {
             Self {
                 command_channel: command_tx,
                 task_handle: handler,
+                map_peer_topic: Arc::new(RwLock::new(HashMap::new()))
             },
             message_rx,
         ))
@@ -200,6 +202,7 @@ impl PeerToPeerService {
         multi_pass: Arc<RwLock<impl MultiPass>>,
         message_sender: &Sender<MessageContent>,
         did: Arc<RwLock<DID>>,
+        map: Arc<RwLock<HashMap<DIDKey, String>>>
     ) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(event)) => match event {
@@ -396,7 +399,13 @@ impl PeerToPeerService {
     }
 
     pub async fn send(&mut self, sata: Sata) -> Result<()> {
-        todo!()
+        if let Some(recipients) = sata.recipients().as_ref() {
+            for rec in recipients {
+
+            }
+        }
+
+        Ok(())
     }
 }
 
