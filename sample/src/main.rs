@@ -22,10 +22,11 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
             let message = receiver.recv().await;
 
             if let Some(message_content) = message {
+                let res = std::str::from_utf8(&message_content.1.data()).unwrap().to_string();
                 info!(
                     "Message arrived, topic hash: {}, message content: {}",
                     message_content.0.to_string(),
-                    message_content.1.id().to_string()
+                    res
                 );
             }
         }
