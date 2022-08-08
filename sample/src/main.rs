@@ -12,6 +12,7 @@ use std::{
 use tokio::{main, sync::RwLock, task::JoinHandle};
 use tokio::sync::mpsc::Receiver;
 use warp::crypto::{did_key, DID};
+use log::{debug, error, log_enabled, info, Level};
 
 mod trait_impl;
 
@@ -21,7 +22,7 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
             let message = receiver.recv().await;
 
             if let Some(message_content) = message {
-                println!(
+                info!(
                     "Message arrived, topic hash: {}, message content: {}",
                     message_content.0.to_string(),
                     message_content.1.id().to_string()
@@ -87,19 +88,19 @@ fn create_command_map_handler() -> HashMap<
                                 let mut service_write = service.write().await;
                                 match service_write.pair_to_another_peer(x.into()).await {
                                     Ok(_) => {
-                                        println!("Sucess sending pairing request");
+                                        info!("Sucess sending pairing request");
                                     }
                                     Err(_) => {
-                                        println!("Failure sending pairing request");
+                                        error!("Failure sending pairing request");
                                     }
                                 }
                             }
                             Err(_) => {
-                                println!("Failed to parse address");
+                                error!("Failed to parse address");
                             }
                         }
                     } else {
-                        println!("pair peer_address");
+                        error!("pair peer_address");
                     }
                 })
             },
@@ -115,14 +116,14 @@ fn create_command_map_handler() -> HashMap<
                         let service_write = service.write().await;
                         match service_write.subscribe_to_topic(args[0].clone()).await {
                             Ok(_) => {
-                                println!("Success sending topic subscription");
+                                info!("Success sending topic subscription");
                             }
                             Err(_) => {
-                                println!("Failure to send topic subscription");
+                                error!("Failure to send topic subscription");
                             }
                         }
                     } else {
-                        println!("subscribe topic");
+                        error!("subscribe topic");
                     }
                 })
             },
@@ -144,17 +145,17 @@ fn create_command_map_handler() -> HashMap<
                                 .await
                             {
                                 Ok(_) => {
-                                    println!("Success sending publish message request");
+                                    info!("Success sending publish message request");
                                 }
                                 Err(_) => {
-                                    println!("Failure sending publish message request");
+                                    error!("Failure sending publish message request");
                                 }
                             }
                         } else {
-                            println!("Error encoding data");
+                            error!("Error encoding data");
                         }
                     } else {
-                        println!("publish topic content")
+                        error!("publish topic content")
                     }
                 })
             },
@@ -166,6 +167,7 @@ fn create_command_map_handler() -> HashMap<
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let (service_int, rx) = create_service().await;
     let service = Arc::new(RwLock::new(service_int));
     let handle = handle_coming_messages(rx);
@@ -175,7 +177,7 @@ async fn main() {
     let quit = "quit".to_string();
 
     while command != quit {
-        println!("Type your command");
+        info!("Type your command");
         if let Ok(_) = read_from_stdin.read_line(&mut command) {
             let words: Vec<String> = command
                 .split(' ')
@@ -190,14 +192,14 @@ async fn main() {
                 })
                 .collect();
             if words.len() < 1 {
-                println!("Invalid command");
+                error!("Invalid command");
                 continue;
             }
 
             if let Some(function) = map_command.get_mut(&words[0]) {
                 function(service.clone(), (&words[1..]).to_vec()).await;
             } else {
-                println!("Invalid command");
+                error!("Invalid command");
             }
 
             command.clear();

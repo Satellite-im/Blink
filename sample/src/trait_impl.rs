@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use blink_contract::{Event, EventBus};
 use sata::Sata;
 use std::io::Write;
+use log::{debug, error, log_enabled, info, Level};
 use warp::{
     error::Error,
     data::DataType,
@@ -36,55 +37,55 @@ impl EventBus for EventHandlerImpl {
     fn event_occurred(&mut self, event: Event) {
         match event {
             Event::DialSuccessful(x) => {
-                println!("Event: Successfully dialed {}", x);
+                info!("Event: Successfully dialed {}", x);
             }
             Event::DialError(x) => {
-                println!("Event: Error dialing {}", x);
+                info!("Event: Error dialing {}", x);
             }
             Event::ConvertKeyError => {
-                println!("Event: Converting key error");
+                info!("Event: Converting key error");
             }
             Event::SubscriptionError(x) => {
-                println!("Event: Subscription error {}", x);
+                info!("Event: Subscription error {}", x);
             }
             Event::NewListenAddr(x) => {
-                println!("Event: NewListenAddr {}", x.to_string());
+                info!("Event: NewListenAddr {}", x.to_string());
             }
             Event::ErrorAddingToCache(x) => {
-                println!("Event: Error adding to cache {}", x);
+                info!("Event: Error adding to cache {}", x);
             }
             Event::ErrorDeserializingData => {
-                println!("Event: Error deserializing data");
+                info!("Event: Error deserializing data");
             }
             Event::ErrorSerializingData => {
-                println!("Event: Error serializing data");
+                info!("Event: Error serializing data");
             }
             Event::ErrorPublishingData(x) => {
-                println!("Event: Error publishing data {}", x);
+                info!("Event: Error publishing data {}", x);
             }
             Event::SubscribedToTopic(x) => {
-                println!("Event: Subscribed to topic {}", x);
+                info!("Event: Subscribed to topic {}", x);
             }
             Event::FailureToIdentifyPeer => {
-                println!("Event: Failure to identify peer");
+                info!("Event: Failure to identify peer");
             }
             Event::PeerIdentified => {
-                println!("Event: Peer identified");
+                info!("Event: Peer identified");
             }
             Event::FailedToSendMessage => {
-                println!("Event: Failure to send message");
+                info!("Event: Failure to send message");
             }
             Event::FailureToDisconnectPeer => {
-                println!("Event: Failure to disconnect from peer");
+                info!("Event: Failure to disconnect from peer");
             }
             Event::PeerConnectionClosed(x) => {
-                println!("Event: Peer connection closed {}", x);
+                info!("Event: Peer connection closed {}", x);
             }
             Event::ConnectionEstablished(x) => {
-                println!("Event: Connection established {}", x);
+                info!("Event: Connection established {}", x);
             }
             Event::TaskCancelled => {
-                println!("Event: Task cancelled");
+                info!("Event: Task cancelled");
             }
         }
     }
@@ -114,9 +115,11 @@ impl PocketDimension for PocketDimensionImpl {
             .unwrap().as_secs();
         path.push(format!("{}.txt", time));
 
+        let path_to_write = path.to_str().unwrap().to_string();
         let res = std::str::from_utf8(&data.data()).map_err(|x| anyhow!(x))?.to_string();
         let mut output = File::create(path)?;
         write!(output, "{}", res)?;
+        info!("file wrote {}", path_to_write);
         Ok(())
     }
 
