@@ -1,30 +1,25 @@
 use crate::{
-    peer_to_peer_service::did_keypair_to_libp2p_keypair,
-    peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior},
-    peer_to_peer_service::{libp2p_pub_to_did, CancellationToken}
+    behavior::{BehaviourEvent, BlinkBehavior},
+    did_keypair_to_libp2p_keypair, {libp2p_pub_to_did, CancellationToken},
 };
 use anyhow::Result;
 use blink_contract::{Event, EventBus};
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
 use libp2p::{
-    gossipsub::{Sha256Topic, TopicHash},
-    mdns::MdnsEvent,
-    swarm::dial_opts::DialOpts,
     core::transport::upgrade,
     futures::StreamExt,
     gossipsub::GossipsubEvent,
+    gossipsub::{Sha256Topic, TopicHash},
     identify::IdentifyEvent,
     identity::Keypair,
     kad::{KademliaEvent, QueryResult},
-    mplex,
-    noise,
+    mdns::MdnsEvent,
+    mplex, noise,
+    swarm::dial_opts::DialOpts,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     tcp::{GenTcpConfig, TokioTcpTransport},
-    Multiaddr,
-    PeerId,
-    Swarm,
-    Transport
+    Multiaddr, PeerId, Swarm, Transport,
 };
 use sata::Sata;
 use std::{
@@ -33,19 +28,16 @@ use std::{
 };
 use tokio::{
     sync::{
-        mpsc::{
-            Receiver,
-            Sender
-        },
-        RwLock
+        mpsc::{Receiver, Sender},
+        RwLock,
     },
-    task::JoinHandle
+    task::JoinHandle,
 };
 use warp::{
     crypto::DID,
     data::DataType,
     multipass::{identity::Identifier, MultiPass},
-    pocket_dimension::PocketDimension
+    pocket_dimension::PocketDimension,
 };
 
 pub type TopicName = String;
@@ -128,10 +120,13 @@ impl PeerToPeerService {
             }
         });
 
-        Ok((Self {
-            command_channel: command_tx,
-            task_handle: handler
-        }, message_rx))
+        Ok((
+            Self {
+                command_channel: command_tx,
+                task_handle: handler,
+            },
+            message_rx,
+        ))
     }
 
     async fn handle_command(
@@ -555,7 +550,7 @@ mod when_using_peer_to_peer_service {
         Arc<RwLock<MultiPassImpl>>,
         Arc<RwLock<DID>>,
         HashMap<PeerId, Multiaddr>,
-        Receiver<MessageContent>
+        Receiver<MessageContent>,
     ) {
         let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
             None,
@@ -608,7 +603,7 @@ mod when_using_peer_to_peer_service {
             multi_pass,
             id_keys,
             map,
-            receiver
+            receiver,
         )
     }
 
@@ -644,12 +639,14 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn connecting_to_peer_does_not_generate_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (_, _, peer_id, _, _, _, addr_map, _)
-                = create_service(HashMap::new(), true).await;
+            let (_, _, peer_id, _, _, _, addr_map, _) = create_service(HashMap::new(), true).await;
 
             let (mut first_client, _, _, _, _, _, _, _) = create_service(addr_map, true).await;
 
-            first_client.pair_to_another_peer(peer_id.into()).await.unwrap();
+            first_client
+                .pair_to_another_peer(peer_id.into())
+                .await
+                .unwrap();
         })
         .await
         .expect("Timeout");
@@ -679,7 +676,7 @@ mod when_using_peer_to_peer_service {
                 _,
                 _,
                 second_client_addr,
-                mut message_rx
+                mut message_rx,
             ) = create_service(HashMap::new(), true).await;
 
             let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
@@ -742,7 +739,7 @@ mod when_using_peer_to_peer_service {
                 _,
                 _,
                 second_client_addr,
-                _
+                _,
             ) = create_service(HashMap::new(), true).await;
 
             let (mut first_client, first_client_log_handler, _, _, _, _, _, message_rx) =

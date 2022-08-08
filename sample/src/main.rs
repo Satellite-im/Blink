@@ -2,19 +2,15 @@ use crate::{
     did_key::Ed25519KeyPair,
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
-use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
+use blink_impl::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
+use log::{error, info};
 use sata::{libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
-use tokio::{
-    sync::RwLock,
-    task::JoinHandle,
-    sync::mpsc::Receiver
-};
+use tokio::{sync::mpsc::Receiver, sync::RwLock, task::JoinHandle};
 use warp::crypto::{did_key, DID};
-use log::{error, info};
 
 mod trait_impl;
 
@@ -24,7 +20,9 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
             let message = receiver.recv().await;
 
             if let Some(message_content) = message {
-                let res = std::str::from_utf8(&message_content.1.data()).unwrap().to_string();
+                let res = std::str::from_utf8(&message_content.1.data())
+                    .unwrap()
+                    .to_string();
                 info!(
                     "Message arrived, topic hash: {}, message content: {}",
                     message_content.0.to_string(),
@@ -64,10 +62,7 @@ async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
 fn create_command_map_handler() -> HashMap<
     String,
     Box<
-        dyn FnMut(
-            Arc<RwLock<PeerToPeerService>>,
-            Vec<String>,
-        ) -> Pin<Box<dyn Future<Output = ()>>>,
+        dyn FnMut(Arc<RwLock<PeerToPeerService>>, Vec<String>) -> Pin<Box<dyn Future<Output = ()>>>,
     >,
 > {
     let mut map_command: HashMap<
@@ -77,7 +72,8 @@ fn create_command_map_handler() -> HashMap<
                 Arc<RwLock<PeerToPeerService>>,
                 Vec<String>,
             ) -> Pin<Box<dyn Future<Output = ()>>>,
-        >> = HashMap::new();
+        >,
+    > = HashMap::new();
 
     map_command.insert(
         "pair".to_string(),
@@ -141,7 +137,8 @@ fn create_command_map_handler() -> HashMap<
                     if args.len() == 2 {
                         let mut service_write = service.write().await;
                         let sata = Sata::default();
-                        let result = sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
+                        let result =
+                            sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
                         if result.is_ok() {
                             match service_write
                                 .publish_message_to_topic(args[0].clone(), result.unwrap())

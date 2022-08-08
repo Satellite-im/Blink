@@ -15,7 +15,7 @@ use libp2p::{
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    time::Duration
+    time::Duration,
 };
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";

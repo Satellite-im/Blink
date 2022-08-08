@@ -1,26 +1,21 @@
-use std::fs::File;
-use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::anyhow;
 use blink_contract::{Event, EventBus};
-use sata::Sata;
-use std::io::Write;
 use log::info;
+use sata::Sata;
+use std::fs::File;
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
 use warp::{
-    error::Error,
-    data::DataType,
     crypto::DID,
+    data::DataType,
+    error::Error,
     module::Module,
     multipass::{
         identity::{Identifier, Identity, IdentityUpdate},
-        Friends,
-        MultiPass
+        Friends, MultiPass,
     },
-    pocket_dimension::{
-        query::QueryBuilder,
-        PocketDimension
-    },
-    Extension,
-    SingleHandle
+    pocket_dimension::{query::QueryBuilder, PocketDimension},
+    Extension, SingleHandle,
 };
 
 #[derive(Default)]
@@ -111,11 +106,14 @@ impl PocketDimension for PocketDimensionImpl {
         let mut path = std::env::temp_dir();
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap().as_secs();
+            .unwrap()
+            .as_secs();
         path.push(format!("{}.txt", time));
 
         let path_to_write = path.to_str().unwrap().to_string();
-        let res = std::str::from_utf8(&data.data()).map_err(|x| anyhow!(x))?.to_string();
+        let res = std::str::from_utf8(&data.data())
+            .map_err(|x| anyhow!(x))?
+            .to_string();
         let mut output = File::create(path)?;
         write!(output, "{}", res)?;
         info!("file wrote {}", path_to_write);
@@ -126,11 +124,7 @@ impl PocketDimension for PocketDimensionImpl {
         todo!()
     }
 
-    fn get_data(
-        &self,
-        _: DataType,
-        _: Option<&QueryBuilder>,
-    ) -> Result<Vec<Sata>, Error> {
+    fn get_data(&self, _: DataType, _: Option<&QueryBuilder>) -> Result<Vec<Sata>, Error> {
         todo!()
     }
 
@@ -166,11 +160,7 @@ impl Extension for MultiPassImpl {
 }
 
 impl MultiPass for MultiPassImpl {
-    fn create_identity(
-        &mut self,
-        _: Option<&str>,
-        _: Option<&str>,
-    ) -> Result<DID, Error> {
+    fn create_identity(&mut self, _: Option<&str>, _: Option<&str>) -> Result<DID, Error> {
         todo!()
     }
 
