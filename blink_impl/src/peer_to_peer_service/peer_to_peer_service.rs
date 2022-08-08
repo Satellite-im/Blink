@@ -640,7 +640,7 @@ mod when_using_peer_to_peer_service {
             let (_, _, peer_id, _, _, _, addr_map, _)
                 = create_service(HashMap::new(), true).await;
 
-            let (mut first_client, _, _, _, _, _, _) = create_service(addr_map, true).await;
+            let (mut first_client, _, _, _, _, _, _, _) = create_service(addr_map, true).await;
 
             first_client.pair_to_another_peer(peer_id.into()).await.unwrap();
         })
@@ -651,7 +651,7 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn subscribe_to_topic_does_not_cause_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (mut client, log_handler, _, _, _, _, _) =
+            let (mut client, log_handler, _, _, _, _, _, _) =
                 create_service(HashMap::new(), true).await;
 
             subscribe_to_topic(&mut client, "some topic".to_string(), log_handler.clone()).await;
@@ -672,10 +672,10 @@ mod when_using_peer_to_peer_service {
                 _,
                 _,
                 second_client_addr,
-                _
+                mut message_rx
             ) = create_service(HashMap::new(), true).await;
 
-            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+            let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
                 create_service(second_client_addr, true).await;
 
             first_client
@@ -717,7 +717,7 @@ mod when_using_peer_to_peer_service {
                 .await
                 .unwrap();
 
-            while second_client.messages_channel.recv().await.is_none() {}
+            while message_rx.recv().await.is_none() {}
         })
         .await
         .expect("Timeout");
@@ -738,7 +738,7 @@ mod when_using_peer_to_peer_service {
                 _
             ) = create_service(HashMap::new(), true).await;
 
-            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+            let (mut first_client, first_client_log_handler, _, _, _, _, _, message_rx) =
                 create_service(second_client_addr, true).await;
 
             first_client
@@ -825,7 +825,7 @@ mod when_using_peer_to_peer_service {
             let (_, log_handler, second_client_peer_id, _, _, _, second_client_addr, _) =
                 create_service(HashMap::new(), true).await;
 
-            let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+            let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
                 create_service(second_client_addr, true).await;
 
             first_client
