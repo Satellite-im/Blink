@@ -8,7 +8,7 @@ use blink_contract::{Event, EventBus};
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
 use libp2p::{
-    gossipsub::{Sha256Topic, TopicHash},
+    gossipsub::TopicHash,
     mdns::MdnsEvent,
     swarm::dial_opts::DialOpts,
     core::transport::upgrade,
@@ -24,7 +24,8 @@ use libp2p::{
     Multiaddr,
     PeerId,
     Swarm,
-    Transport
+    Transport,
+    gossipsub::IdentTopic
 };
 use sata::Sata;
 use std::{
@@ -160,7 +161,7 @@ impl PeerToPeerService {
                 }
             }
             BlinkCommand::Subscribe(address) => {
-                let topic = Sha256Topic::new(address.clone());
+                let topic = IdentTopic::new(address.clone());
                 match swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
                     Ok(_) => {
                         let mut service = logger.write().await;
@@ -176,7 +177,7 @@ impl PeerToPeerService {
                 let serialized_result = bincode::serialize(&sata);
                 match serialized_result {
                     Ok(serialized) => {
-                        let topic = Sha256Topic::new(name);
+                        let topic = IdentTopic::new(name);
                         if let Err(err) =
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
@@ -241,7 +242,7 @@ impl PeerToPeerService {
                                     let exchange = private_key_pair.key_exchange(&public_key_pair);
                                     let hashed = Hash::hash(exchange);
                                     let topic = base64::encode(hashed);
-                                    let topic_subs = Sha256Topic::new(&topic);
+                                    let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
                                             let mut log = logger.write().await;
