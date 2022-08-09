@@ -413,7 +413,7 @@ impl PeerToPeerService {
             for item in recipients {
                 let did = DID::from(item);
                 let key = did.to_string();
-                let key = {
+                let key_content = {
                     let map_read = self.map_peer_topic.read().await;
                     if let Some(res) = (*map_read).get(&key) {
                         Some(res.clone())
@@ -422,7 +422,7 @@ impl PeerToPeerService {
                     }
                 };
 
-                if let Some(k) = key {
+                if let Some(k) = key_content {
                     self.publish_message_to_topic(k.clone(), sata.clone()).await?;
                 }
             }
