@@ -38,9 +38,9 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
 }
 
 async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
-    let id_keys = Arc::new(RwLock::new(DID::from(did_key::generate::<Ed25519KeyPair>(
+    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
         None,
-    ))));
+    )));
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let cache = Arc::new(RwLock::new(PocketDimensionImpl::default()));
     let log_handler = Arc::new(RwLock::new(EventHandlerImpl::default()));
