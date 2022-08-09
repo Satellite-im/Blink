@@ -28,10 +28,7 @@ use libp2p::{
     gossipsub::IdentTopic
 };
 use sata::Sata;
-use std::{
-    collections::HashMap,
-    sync::{atomic::Ordering, Arc},
-};
+use std::sync::{atomic::Ordering, Arc};
 use tokio::{
     sync::{
         mpsc::{
@@ -78,7 +75,7 @@ impl PeerToPeerService {
     pub async fn new(
         did_key: Arc<DID>,
         address_to_listen: &str,
-        initial_known_address: Option<HashMap<PeerId, Multiaddr>>,
+        initial_known_address: Option<Vec<Multiaddr>>,
         cache: Arc<RwLock<impl PocketDimension + 'static>>,
         multi_pass: Arc<RwLock<impl MultiPass + 'static>>,
         logger: Arc<RwLock<impl EventBus + 'static>>,
@@ -89,10 +86,12 @@ impl PeerToPeerService {
         let peer_id = PeerId::from(&pub_key);
         let mut swarm = Self::create_swarm(&key_pair, &peer_id).await?;
         if let Some(initial_address) = initial_known_address {
-            for (peer, addr) in initial_address {
-                let behaviour = swarm.behaviour_mut();
-                behaviour.kademlia.add_address(&peer, addr);
-                behaviour.gossip_sub.add_explicit_peer(&peer_id);
+            for addr in &initial_address {
+                if let Some(peer_addr) = PeerId::try_from_multiaddr(addr) {
+                    let behaviour = swarm.behaviour_mut();
+                    behaviour.kademlia.add_address(&peer_addr, addr.clone());
+                    behaviour.gossip_sub.add_explicit_peer(&peer_addr);
+                }
             }
         }
 
@@ -406,9 +405,11 @@ mod when_using_peer_to_peer_service {
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
     use sata::Sata;
-    use std::{collections::HashMap, sync::atomic::AtomicBool, sync::Arc, time::Duration};
-    use tokio::sync::mpsc::Receiver;
-    use tokio::sync::RwLock;
+    use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
+    use tokio::{
+        sync::mpsc::Receiver,
+        sync::RwLock
+    };
     use warp::{
         crypto::DID,
         data::DataType,
@@ -473,7 +474,7 @@ mod when_using_peer_to_peer_service {
             todo!()
         }
 
-        fn decrypt_private_key(&self, passphrase: Option<&str>) -> Result<DID, Error> {
+        fn decrypt_private_key(&self, _: Option<&str>) -> Result<DID, Error> {
             todo!()
         }
 
@@ -542,7 +543,7 @@ mod when_using_peer_to_peer_service {
     }
 
     async fn create_service(
-        initial_address: HashMap<PeerId, Multiaddr>,
+        initial_address: Vec<Multiaddr>,
         pass_multi_pass_validation_requests: bool,
     ) -> (
         PeerToPeerService,
@@ -551,7 +552,7 @@ mod when_using_peer_to_peer_service {
         Arc<RwLock<TestCache>>,
         Arc<RwLock<MultiPassImpl>>,
         Arc<DID>,
-        HashMap<PeerId, Multiaddr>,
+        Vec<Multiaddr>,
         Receiver<MessageContent>
     ) {
         let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
@@ -591,8 +592,8 @@ mod when_using_peer_to_peer_service {
             }
         }
 
-        let mut map = HashMap::new();
-        map.insert(peer_id.clone(), addr_to_send.unwrap());
+        let mut map = Vec::new();
+        map.push(addr_to_send.unwrap());
 
         (
             service,
@@ -629,7 +630,7 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn open_does_not_throw() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            create_service(HashMap::new(), true).await;
+            create_service(Vec::new(), true).await;
         })
         .await
         .expect("timeout");
@@ -639,7 +640,7 @@ mod when_using_peer_to_peer_service {
     async fn connecting_to_peer_does_not_generate_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
             let (_, _, peer_id, _, _, _, addr_map, _)
-                = create_service(HashMap::new(), true).await;
+                = create_service(Vec::new(), true).await;
 
             let (mut first_client, _, _, _, _, _, _, _) = create_service(addr_map, true).await;
 
@@ -653,7 +654,7 @@ mod when_using_peer_to_peer_service {
     async fn subscribe_to_topic_does_not_cause_errors() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
             let (mut client, log_handler, _, _, _, _, _, _) =
-                create_service(HashMap::new(), true).await;
+                create_service(Vec::new(), true).await;
 
             subscribe_to_topic(&mut client, "some topic".to_string(), log_handler.clone()).await;
         })
@@ -669,12 +670,12 @@ mod when_using_peer_to_peer_service {
                 mut second_client,
                 log_handler,
                 second_client_peer_id,
-                second_client_cache,
+                _,
                 _,
                 _,
                 second_client_addr,
                 mut message_rx
-            ) = create_service(HashMap::new(), true).await;
+            ) = create_service(Vec::new(), true).await;
 
             let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
                 create_service(second_client_addr, true).await;
@@ -737,9 +738,9 @@ mod when_using_peer_to_peer_service {
                 _,
                 second_client_addr,
                 _
-            ) = create_service(HashMap::new(), true).await;
+            ) = create_service(Vec::new(), true).await;
 
-            let (mut first_client, first_client_log_handler, _, _, _, _, _, message_rx) =
+            let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
                 create_service(second_client_addr, true).await;
 
             first_client
@@ -796,7 +797,7 @@ mod when_using_peer_to_peer_service {
     async fn failure_to_identify_peer_causes_error() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
             let (_, _, first_client_peer_id, _, _, _, first_client_address, _) =
-                create_service(HashMap::new(), false).await;
+                create_service(Vec::new(), false).await;
 
             let (mut second_client, log_handler_second_client, _, _, _, _, _, _) =
                 create_service(first_client_address, false).await;
@@ -823,8 +824,8 @@ mod when_using_peer_to_peer_service {
     #[tokio::test]
     async fn subscribe_to_common_channel_after_pair() {
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (_, log_handler, second_client_peer_id, _, _, _, second_client_addr, _) =
-                create_service(HashMap::new(), true).await;
+            let (_, _, second_client_peer_id, _, _, _, second_client_addr, _) =
+                create_service(Vec::new(), true).await;
 
             let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
                 create_service(second_client_addr, true).await;
