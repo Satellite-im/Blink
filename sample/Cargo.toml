@@ -1,0 +1,17 @@
+[package]
+name = "sample"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+blink_contract = { path = "../blink_contract" }
+blink_impl = { path = "../blink_impl" }
+libp2p = { version = "0.46.1", features = ["tcp-tokio", "dns-tokio"] }
+anyhow = "1.0.59"
+tokio = { version =  "1.20.1", features = ["full"] }
+sata = { git = "https://github.com/Satellite-im/Sata.git" }
+warp = { git = "https://github.com/Satellite-im/Warp.git", branch = "main" }
+env_logger = "0.9.0"
+log = "0.4.17"
