@@ -2,15 +2,20 @@ use crate::{
     did_key::Ed25519KeyPair,
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
-use blink_impl::peer_to_peer_service::{MessageContent, PeerToPeerService};
+use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
 use log::{error, info};
 use sata::{libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
-use tokio::{sync::mpsc::Receiver, sync::RwLock, task::JoinHandle};
+use tokio::{
+    task::JoinHandle,
+    sync::mpsc::Receiver
+};
 use warp::crypto::{did_key, DID};
+use log::{error, info};
+use warp::sync::RwLock;
 
 mod trait_impl;
 
@@ -84,8 +89,7 @@ fn create_command_map_handler() -> HashMap<
                         let addr = args[0].parse::<Multiaddr>();
                         match addr {
                             Ok(x) => {
-                                let mut service_write = service.write().await;
-                                match service_write.pair_to_another_peer(x.into()).await {
+                                match service.write().pair_to_another_peer(x.into()).await {
                                     Ok(_) => {
                                         info!("Sucess sending pairing request");
                                     }
@@ -112,8 +116,7 @@ fn create_command_map_handler() -> HashMap<
             |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
                 Box::pin(async move {
                     if args.len() == 1 {
-                        let service_write = service.write().await;
-                        match service_write.subscribe_to_topic(args[0].clone()).await {
+                        match service.write().subscribe_to_topic(args[0].clone()).await {
                             Ok(_) => {
                                 info!("Success sending topic subscription");
                             }
@@ -135,12 +138,11 @@ fn create_command_map_handler() -> HashMap<
             |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
                 Box::pin(async move {
                     if args.len() == 2 {
-                        let mut service_write = service.write().await;
                         let sata = Sata::default();
                         let result =
                             sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
                         if result.is_ok() {
-                            match service_write
+                            match service.write()
                                 .publish_message_to_topic(args[0].clone(), result.unwrap())
                                 .await
                             {
