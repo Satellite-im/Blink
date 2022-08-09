@@ -102,26 +102,22 @@ impl PeerToPeerService {
 
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(CHANNEL_SIZE);
         let (message_tx, message_rx) = tokio::sync::mpsc::channel(CHANNEL_SIZE);
-        let cache_to_thread = cache.clone();
-        let thread_logger = logger.clone();
-        let multi_pass_thread = multi_pass.clone();
-        let did_thread = did_key.clone();
 
         let handler = tokio::spawn(async move {
             loop {
                 if cancellation_token.load(Ordering::Acquire) {
-                    thread_logger.write().event_occurred(Event::TaskCancelled);
+                    logger.write().event_occurred(Event::TaskCancelled);
                 }
 
                 tokio::select! {
                      cmd = command_rx.recv() => {
                          if let Some(command) = cmd {
-                             Self::handle_command(&mut swarm, command, thread_logger.clone()).await;
+                             Self::handle_command(&mut swarm, command, logger.clone()).await;
                          }
                      },
                     event = swarm.select_next_some() => {
-                         Self::handle_event(&mut swarm, event, cache_to_thread.clone(),
-                            thread_logger.clone(), multi_pass_thread.clone(), &message_tx, did_thread.clone()).await;
+                         Self::handle_event(&mut swarm, event, cache.clone(),
+                            logger.clone(), multi_pass.clone(), &message_tx, did_key.clone()).await;
                     }
                 }
             }
