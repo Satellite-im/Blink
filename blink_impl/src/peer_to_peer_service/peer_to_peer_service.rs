@@ -379,16 +379,17 @@ impl PeerToPeerService {
 
 #[cfg(test)]
 mod when_using_peer_to_peer_service {
-    use crate::peer_to_peer_service::did_keypair_to_libp2p_keypair;
-    use crate::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
+    use crate::{
+        peer_to_peer_service::{
+            did_keypair_to_libp2p_keypair
+        }
+    };
     use blink_contract::{Event, EventBus};
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
     use sata::Sata;
     use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
-    use tokio::{
-        sync::mpsc::Receiver,
-    };
+    use tokio::sync::mpsc::Receiver;
     use warp::{
         crypto::DID,
         data::DataType,
@@ -401,6 +402,7 @@ mod when_using_peer_to_peer_service {
         Extension, SingleHandle,
     };
     use warp::sync::RwLock;
+    use crate::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
     const TIMEOUT_SECS: u64 = 1;
 
@@ -682,9 +684,7 @@ mod when_using_peer_to_peer_service {
 
             // wait for connection to be good to go
             while !connection_ok {
-                let events = &first_client_log_handler.read().events;
-
-                for event in events {
+                for event in &first_client_log_handler.read().events {
                     if let Event::PeerIdentified = event {
                         connection_ok = true;
                         break;
@@ -746,15 +746,14 @@ mod when_using_peer_to_peer_service {
 
             // wait for connection to be good to go
             while !connection_ok {
-                let first_client_log_read = first_client_log_handler.read();
-                let events = &(*first_client_log_read).events;
-
-                for event in events {
+                for event in &first_client_log_handler.read().events {
                     if let Event::PeerIdentified = event {
                         connection_ok = true;
                         break;
                     }
                 }
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
 
             first_client
@@ -763,10 +762,10 @@ mod when_using_peer_to_peer_service {
                 .unwrap();
 
             loop {
-                let cache_read = second_client_cache.read();
-                if (*cache_read).data_added.len() > 0 {
+                if second_client_cache.read().data_added.len() > 0 {
                     break;
                 }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
