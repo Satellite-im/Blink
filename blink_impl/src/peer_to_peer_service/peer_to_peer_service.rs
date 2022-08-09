@@ -110,8 +110,7 @@ impl PeerToPeerService {
         let handler = tokio::spawn(async move {
             loop {
                 if cancellation_token.load(Ordering::Acquire) {
-                    let mut log_write = thread_logger.write();
-                    (*log_write).event_occurred(Event::TaskCancelled);
+                    thread_logger.write().event_occurred(Event::TaskCancelled);
                 }
 
                 tokio::select! {
@@ -164,12 +163,10 @@ impl PeerToPeerService {
                 let topic = IdentTopic::new(address.clone());
                 match swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
                     Ok(_) => {
-                        let mut service = logger.write();
-                        service.event_occurred(Event::SubscribedToTopic(address));
+                        logger.write().event_occurred(Event::SubscribedToTopic(address));
                     }
                     Err(e) => {
-                        let mut service = logger.write();
-                        service.event_occurred(Event::SubscriptionError(e.to_string()))
+                        logger.write().event_occurred(Event::SubscriptionError(e.to_string()))
                     }
                 }
             }
@@ -181,14 +178,11 @@ impl PeerToPeerService {
                         if let Err(err) =
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
-                            let mut log_service = logger.write();
-                            (*log_service)
-                                .event_occurred(Event::ErrorPublishingData(err.to_string()));
+                            logger.write().event_occurred(Event::ErrorPublishingData(err.to_string()));
                         }
                     }
                     Err(_) => {
-                        let mut log_service = logger.write();
-                        (*log_service).event_occurred(Event::ErrorSerializingData);
+                        logger.write().event_occurred(Event::ErrorSerializingData);
                     }
                 }
             }
@@ -225,9 +219,7 @@ impl PeerToPeerService {
 
                     match did_result {
                         Ok(their_public) => {
-                            let multi_pass_read = multi_pass.read();
-
-                            match (*multi_pass_read)
+                            match multi_pass.read()
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
@@ -245,30 +237,26 @@ impl PeerToPeerService {
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
-                                            let mut log = logger.write();
-                                            (*log).event_occurred(Event::SubscribedToTopic(topic));
-                                            (*log).event_occurred(Event::PeerIdentified);
+                                            logger.write().event_occurred(Event::SubscribedToTopic(topic));
+                                            logger.write().event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
-                                            let mut log = logger.write();
-                                            (*log).event_occurred(Event::SubscriptionError(
+                                            logger.write().event_occurred(Event::SubscriptionError(
                                                 er.to_string(),
                                             ));
                                         }
                                     }
                                 }
                                 Err(_) => {
-                                    let mut log = logger.write();
-                                    (*log).event_occurred(Event::FailureToIdentifyPeer);
+                                    logger.write().event_occurred(Event::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
-                                        (*log).event_occurred(Event::FailureToDisconnectPeer);
+                                        logger.write().event_occurred(Event::FailureToDisconnectPeer);
                                     }
                                 }
                             }
                         }
                         Err(_) => {
-                            let mut log = logger.write();
-                            (*log).event_occurred(Event::ConvertKeyError);
+                            logger.write().event_occurred(Event::ConvertKeyError);
                         }
                     }
                 }
@@ -282,21 +270,15 @@ impl PeerToPeerService {
                     let data = bincode::deserialize::<Sata>(&message_data);
                     match data {
                         Ok(info) => {
-                            let mut write = cache.write();
-                            if let Err(e) = write.add_data(DataType::Messaging, &info) {
-                                let mut log_service = logger.write();
-                                log_service
-                                    .event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
+                            if let Err(e) = cache.write().add_data(DataType::Messaging, &info) {
+                                logger.write().event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
                             }
-                            if let Err(_) = message_sender.send((message.topic, info.clone())).await
-                            {
-                                let mut log_service = logger.write();
-                                log_service.event_occurred(Event::FailedToSendMessage);
+                            if let Err(_) = message_sender.send((message.topic, info.clone())).await {
+                                logger.write().event_occurred(Event::FailedToSendMessage);
                             }
                         }
                         Err(_) => {
-                            let mut log_service = logger.write();
-                            log_service.event_occurred(Event::ErrorDeserializingData);
+                            logger.write().event_occurred(Event::ErrorDeserializingData);
                         }
                     }
                 }
@@ -331,20 +313,17 @@ impl PeerToPeerService {
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                let mut log_service = logger.write();
-                (*log_service).event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
+                logger.write().event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                let mut log_service = logger.write();
-                (*log_service).event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
+                logger.write().event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
             }
             SwarmEvent::IncomingConnection { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {}
             SwarmEvent::OutgoingConnectionError { .. } => {}
             SwarmEvent::BannedPeer { .. } => {}
             SwarmEvent::NewListenAddr { address, .. } => {
-                let mut log_service = logger.write();
-                (*log_service).event_occurred(Event::NewListenAddr(address));
+                logger.write().event_occurred(Event::NewListenAddr(address));
             }
             SwarmEvent::ExpiredListenAddr { .. } => {}
             SwarmEvent::ListenerClosed { .. } => {}
@@ -582,9 +561,7 @@ mod when_using_peer_to_peer_service {
         let mut addr_to_send = None;
         let mut break_loop = false;
         while !break_loop {
-            let log_handler_read = log_handler.read();
-
-            for event in &(*log_handler_read).events {
+            for event in &log_handler.read().events {
                 if let Event::NewListenAddr(addr) = event {
                     break_loop = true;
                     addr_to_send = Some(addr.clone());
