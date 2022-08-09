@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::{
     behavior::{BehaviourEvent, BlinkBehavior},
     did_keypair_to_libp2p_keypair, {libp2p_pub_to_did, CancellationToken},
@@ -9,14 +10,12 @@ use hmac_sha512::Hash;
 use libp2p::{
     gossipsub::TopicHash,
     mdns::MdnsEvent,
-    swarm::dial_opts::DialOpts,
     core::transport::upgrade,
     futures::StreamExt,
     gossipsub::GossipsubEvent,
     identify::IdentifyEvent,
     identity::Keypair,
     kad::{KademliaEvent, QueryResult},
-    mdns::MdnsEvent,
     mplex, noise,
     swarm::dial_opts::DialOpts,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
@@ -60,7 +59,7 @@ pub enum BlinkCommand {
 pub struct PeerToPeerService {
     command_channel: Sender<BlinkCommand>,
     task_handle: JoinHandle<()>,
-    map_peer_topic: Arc<RwLock<HashMap<DIDKey, String>>>
+    map_peer_topic: Arc<RwLock<HashMap<String, String>>>
 }
 
 impl Drop for PeerToPeerService {
@@ -101,6 +100,8 @@ impl PeerToPeerService {
         let thread_logger = logger.clone();
         let multi_pass_thread = multi_pass.clone();
         let did_thread = did_key.clone();
+        let map = Arc::new(RwLock::new(HashMap::new()));
+        let map_thread = map.clone();
 
         let handler = tokio::spawn(async move {
             loop {
@@ -117,7 +118,7 @@ impl PeerToPeerService {
                      },
                     event = swarm.select_next_some() => {
                          Self::handle_event(&mut swarm, event, cache_to_thread.clone(),
-                            thread_logger.clone(), multi_pass_thread.clone(), &message_tx, did_thread.clone()).await;
+                            thread_logger.clone(), multi_pass_thread.clone(), &message_tx, did_thread.clone(), map_thread.clone()).await;
                     }
                 }
             }
@@ -127,7 +128,7 @@ impl PeerToPeerService {
             Self {
                 command_channel: command_tx,
                 task_handle: handler,
-                map_peer_topic: Arc::new(RwLock::new(HashMap::new()))
+                map_peer_topic: map,
             },
             message_rx,
         ))
@@ -204,7 +205,7 @@ impl PeerToPeerService {
         multi_pass: Arc<RwLock<impl MultiPass>>,
         message_sender: &Sender<MessageContent>,
         did: Arc<DID>,
-        map: Arc<RwLock<HashMap<DIDKey, String>>>
+        map: Arc<RwLock<HashMap<String, String>>>
     ) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(event)) => match event {
@@ -233,17 +234,11 @@ impl PeerToPeerService {
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
-                                    let private_key_pair = Ed25519KeyPair::from_secret_key(
-                                        &(*did).as_ref().private_key_bytes(),
-                                    )
-                                    .get_x25519();
-                                    let public_key_pair = Ed25519KeyPair::from_public_key(
-                                        &their_public.as_ref().public_key_bytes(),
-                                    )
-                                    .get_x25519();
-                                    let exchange = private_key_pair.key_exchange(&public_key_pair);
-                                    let hashed = Hash::hash(exchange);
-                                    let topic = base64::encode(hashed);
+                                    let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
+                                    {
+                                        let mut map_write = map.write().await;
+                                        (*map_write).insert(their_public.to_string(), topic.clone());
+                                    }
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
@@ -356,6 +351,20 @@ impl PeerToPeerService {
         }
     }
 
+    fn generate_topic_from_key_exchange(private_key: &DID, public_key: &DID) -> String {
+        let private_key_pair = Ed25519KeyPair::from_secret_key(
+            &private_key.as_ref().private_key_bytes()
+        ).get_x25519();
+        let public_key_pair = Ed25519KeyPair::from_public_key(
+            &public_key.as_ref().public_key_bytes(),
+        ).get_x25519();
+        let exchange = private_key_pair.key_exchange(&public_key_pair);
+        let hashed = Hash::hash(exchange);
+        let topic = base64::encode(hashed);
+
+        topic
+    }
+
     async fn create_swarm(key_pair: &Keypair, peer_id: &PeerId) -> Result<Swarm<BlinkBehavior>> {
         let blink_behaviour = BlinkBehavior::new(&key_pair).await?;
         // Create a keypair for authenticated encryption of the transport.
@@ -400,9 +409,22 @@ impl PeerToPeerService {
     }
 
     pub async fn send(&mut self, sata: Sata) -> Result<()> {
-        if let Some(recipients) = sata.recipients().as_ref() {
-            for rec in recipients {
+        if let Some(recipients) = sata.recipients() {
+            for item in recipients {
+                let did = DID::from(item);
+                let key = did.to_string();
+                let key = {
+                    let map_read = self.map_peer_topic.read().await;
+                    if let Some(res) = (*map_read).get(&key) {
+                        Some(res.clone())
+                    } else {
+                        None
+                    }
+                };
 
+                if let Some(k) = key {
+                    self.publish_message_to_topic(k.clone(), sata.clone()).await?;
+                }
             }
         }
 
@@ -416,8 +438,9 @@ mod when_using_peer_to_peer_service {
     use blink_contract::{Event, EventBus};
     use did_key::Ed25519KeyPair;
     use libp2p::{Multiaddr, PeerId};
-    use sata::Sata;
+    use sata::{Kind, Sata};
     use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
+    use sata::libipld::IpldCodec;
     use tokio::{
         sync::mpsc::Receiver,
         sync::RwLock
@@ -643,8 +666,8 @@ mod when_using_peer_to_peer_service {
     async fn send_message_sends_it_to_every_recipient() {
         const MESSAGE_CONTENTS: &str = "Test";
         tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-            let (service_a, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver) = create_service(HashMap::new(), true).await;
-            let (service_b, _, b_peer_id, _, _, did_b, service_b_address, mut b_receiver) = create_service(HashMap::new(), true).await;
+            let (_, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver) = create_service(Vec::new(), true).await;
+            let (_, _, b_peer_id, _, _, did_b, service_b_address, mut b_receiver) = create_service(Vec::new(), true).await;
             service_a_address.extend(service_b_address.into_iter());
             let (mut service_c, _, _, _, _, _, _, _) = create_service(service_a_address, true).await;
 
@@ -653,10 +676,8 @@ mod when_using_peer_to_peer_service {
 
             let mut sata = Sata::default();
             {
-                let a_read = did_a.read().await;
-                let b_read = did_b.read().await;
-                sata.add_recipient((*a_read).as_ref()).unwrap();
-                sata.add_recipient((*b_read).as_ref()).unwrap();
+                sata.add_recipient((*did_a).as_ref()).unwrap();
+                sata.add_recipient((*did_b).as_ref()).unwrap();
             }
             let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, MESSAGE_CONTENTS.to_string()).unwrap();
             assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
