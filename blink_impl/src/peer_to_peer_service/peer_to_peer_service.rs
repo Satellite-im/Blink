@@ -568,6 +568,7 @@ mod when_using_peer_to_peer_service {
                     break;
                 }
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         let mut map = Vec::new();
@@ -594,14 +595,14 @@ mod when_using_peer_to_peer_service {
 
         let mut found_event = false;
         while !found_event {
-            let log_read = logger.read();
-            for event in &(*log_read).events {
+            for event in &logger.read().events {
                 if let Event::SubscribedToTopic(subs) = event {
                     if subs.eq(&topic) {
                         found_event = true;
                     }
                 }
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -681,8 +682,7 @@ mod when_using_peer_to_peer_service {
 
             // wait for connection to be good to go
             while !connection_ok {
-                let first_client_log_read = first_client_log_handler.read();
-                let events = &(*first_client_log_read).events;
+                let events = &first_client_log_handler.read().events;
 
                 for event in events {
                     if let Event::PeerIdentified = event {
@@ -690,6 +690,8 @@ mod when_using_peer_to_peer_service {
                         break;
                     }
                 }
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
 
             first_client
@@ -787,12 +789,12 @@ mod when_using_peer_to_peer_service {
 
             let mut found_error = false;
             while !found_error {
-                let log_handler_read = log_handler_second_client.read();
-                for event in &(*log_handler_read).events {
+                for event in &log_handler_second_client.read().events {
                     if let Event::FailureToIdentifyPeer = event {
                         found_error = true;
                     }
                 }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -815,14 +817,12 @@ mod when_using_peer_to_peer_service {
 
             let mut found_event = false;
             while !found_event {
-                let log_handler = first_client_log_handler.read();
-                let events = &(*log_handler).events;
-
-                for event in events {
+                for event in &first_client_log_handler.read().events {
                     if let Event::SubscribedToTopic(_) = event {
                         found_event = true;
                     }
                 }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
