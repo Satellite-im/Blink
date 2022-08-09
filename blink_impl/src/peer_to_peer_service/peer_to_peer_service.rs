@@ -1,7 +1,10 @@
 use crate::{
-    peer_to_peer_service::did_keypair_to_libp2p_keypair,
-    peer_to_peer_service::behavior::{BehaviourEvent, BlinkBehavior},
-    peer_to_peer_service::{libp2p_pub_to_did, CancellationToken}
+    peer_to_peer_service::{
+        did_keypair_to_libp2p_keypair,
+        behavior::{BehaviourEvent, BlinkBehavior},
+        libp2p_pub_to_did,
+        CancellationToken
+    }
 };
 use anyhow::Result;
 use blink_contract::{Event, EventBus};
@@ -34,8 +37,7 @@ use tokio::{
         mpsc::{
             Receiver,
             Sender
-        },
-        RwLock
+        }
     },
     task::JoinHandle
 };
@@ -45,6 +47,7 @@ use warp::{
     multipass::{identity::Identifier, MultiPass},
     pocket_dimension::PocketDimension
 };
+use warp::sync::RwLock;
 
 pub type TopicName = String;
 
@@ -107,7 +110,7 @@ impl PeerToPeerService {
         let handler = tokio::spawn(async move {
             loop {
                 if cancellation_token.load(Ordering::Acquire) {
-                    let mut log_write = thread_logger.write().await;
+                    let mut log_write = thread_logger.write();
                     (*log_write).event_occurred(Event::TaskCancelled);
                 }
 
@@ -148,13 +151,11 @@ impl PeerToPeerService {
                     Ok(_) => {
                         logger
                             .write()
-                            .await
                             .event_occurred(Event::DialSuccessful(peer_id));
                     }
                     Err(err) => {
                         logger
                             .write()
-                            .await
                             .event_occurred(Event::DialError(err.to_string()));
                     }
                 }
@@ -163,11 +164,11 @@ impl PeerToPeerService {
                 let topic = IdentTopic::new(address.clone());
                 match swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
                     Ok(_) => {
-                        let mut service = logger.write().await;
+                        let mut service = logger.write();
                         service.event_occurred(Event::SubscribedToTopic(address));
                     }
                     Err(e) => {
-                        let mut service = logger.write().await;
+                        let mut service = logger.write();
                         service.event_occurred(Event::SubscriptionError(e.to_string()))
                     }
                 }
@@ -180,13 +181,13 @@ impl PeerToPeerService {
                         if let Err(err) =
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
-                            let mut log_service = logger.write().await;
+                            let mut log_service = logger.write();
                             (*log_service)
                                 .event_occurred(Event::ErrorPublishingData(err.to_string()));
                         }
                     }
                     Err(_) => {
-                        let mut log_service = logger.write().await;
+                        let mut log_service = logger.write();
                         (*log_service).event_occurred(Event::ErrorSerializingData);
                     }
                 }
@@ -224,7 +225,7 @@ impl PeerToPeerService {
 
                     match did_result {
                         Ok(their_public) => {
-                            let multi_pass_read = multi_pass.read().await;
+                            let multi_pass_read = multi_pass.read();
 
                             match (*multi_pass_read)
                                 .get_identity(Identifier::from(their_public.clone()))
@@ -244,12 +245,12 @@ impl PeerToPeerService {
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
-                                            let mut log = logger.write().await;
+                                            let mut log = logger.write();
                                             (*log).event_occurred(Event::SubscribedToTopic(topic));
                                             (*log).event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
-                                            let mut log = logger.write().await;
+                                            let mut log = logger.write();
                                             (*log).event_occurred(Event::SubscriptionError(
                                                 er.to_string(),
                                             ));
@@ -257,7 +258,7 @@ impl PeerToPeerService {
                                     }
                                 }
                                 Err(_) => {
-                                    let mut log = logger.write().await;
+                                    let mut log = logger.write();
                                     (*log).event_occurred(Event::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
                                         (*log).event_occurred(Event::FailureToDisconnectPeer);
@@ -266,7 +267,7 @@ impl PeerToPeerService {
                             }
                         }
                         Err(_) => {
-                            let mut log = logger.write().await;
+                            let mut log = logger.write();
                             (*log).event_occurred(Event::ConvertKeyError);
                         }
                     }
@@ -281,20 +282,20 @@ impl PeerToPeerService {
                     let data = bincode::deserialize::<Sata>(&message_data);
                     match data {
                         Ok(info) => {
-                            let mut write = cache.write().await;
+                            let mut write = cache.write();
                             if let Err(e) = write.add_data(DataType::Messaging, &info) {
-                                let mut log_service = logger.write().await;
+                                let mut log_service = logger.write();
                                 log_service
                                     .event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
                             }
                             if let Err(_) = message_sender.send((message.topic, info.clone())).await
                             {
-                                let mut log_service = logger.write().await;
+                                let mut log_service = logger.write();
                                 log_service.event_occurred(Event::FailedToSendMessage);
                             }
                         }
                         Err(_) => {
-                            let mut log_service = logger.write().await;
+                            let mut log_service = logger.write();
                             log_service.event_occurred(Event::ErrorDeserializingData);
                         }
                     }
@@ -330,11 +331,11 @@ impl PeerToPeerService {
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                let mut log_service = logger.write().await;
+                let mut log_service = logger.write();
                 (*log_service).event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                let mut log_service = logger.write().await;
+                let mut log_service = logger.write();
                 (*log_service).event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
             }
             SwarmEvent::IncomingConnection { .. } => {}
@@ -342,7 +343,7 @@ impl PeerToPeerService {
             SwarmEvent::OutgoingConnectionError { .. } => {}
             SwarmEvent::BannedPeer { .. } => {}
             SwarmEvent::NewListenAddr { address, .. } => {
-                let mut log_service = logger.write().await;
+                let mut log_service = logger.write();
                 (*log_service).event_occurred(Event::NewListenAddr(address));
             }
             SwarmEvent::ExpiredListenAddr { .. } => {}
@@ -408,7 +409,6 @@ mod when_using_peer_to_peer_service {
     use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
     use tokio::{
         sync::mpsc::Receiver,
-        sync::RwLock
     };
     use warp::{
         crypto::DID,
@@ -421,6 +421,7 @@ mod when_using_peer_to_peer_service {
         pocket_dimension::PocketDimension,
         Extension, SingleHandle,
     };
+    use warp::sync::RwLock;
 
     const TIMEOUT_SECS: u64 = 1;
 
@@ -581,7 +582,7 @@ mod when_using_peer_to_peer_service {
         let mut addr_to_send = None;
         let mut break_loop = false;
         while !break_loop {
-            let log_handler_read = log_handler.read().await;
+            let log_handler_read = log_handler.read();
 
             for event in &(*log_handler_read).events {
                 if let Event::NewListenAddr(addr) = event {
@@ -616,7 +617,7 @@ mod when_using_peer_to_peer_service {
 
         let mut found_event = false;
         while !found_event {
-            let log_read = logger.read().await;
+            let log_read = logger.read();
             for event in &(*log_read).events {
                 if let Event::SubscribedToTopic(subs) = event {
                     if subs.eq(&topic) {
@@ -703,7 +704,7 @@ mod when_using_peer_to_peer_service {
 
             // wait for connection to be good to go
             while !connection_ok {
-                let first_client_log_read = first_client_log_handler.read().await;
+                let first_client_log_read = first_client_log_handler.read();
                 let events = &(*first_client_log_read).events;
 
                 for event in events {
@@ -766,7 +767,7 @@ mod when_using_peer_to_peer_service {
 
             // wait for connection to be good to go
             while !connection_ok {
-                let first_client_log_read = first_client_log_handler.read().await;
+                let first_client_log_read = first_client_log_handler.read();
                 let events = &(*first_client_log_read).events;
 
                 for event in events {
@@ -783,7 +784,7 @@ mod when_using_peer_to_peer_service {
                 .unwrap();
 
             loop {
-                let cache_read = second_client_cache.read().await;
+                let cache_read = second_client_cache.read();
                 if (*cache_read).data_added.len() > 0 {
                     break;
                 }
@@ -809,7 +810,7 @@ mod when_using_peer_to_peer_service {
 
             let mut found_error = false;
             while !found_error {
-                let log_handler_read = log_handler_second_client.read().await;
+                let log_handler_read = log_handler_second_client.read();
                 for event in &(*log_handler_read).events {
                     if let Event::FailureToIdentifyPeer = event {
                         found_error = true;
@@ -837,7 +838,7 @@ mod when_using_peer_to_peer_service {
 
             let mut found_event = false;
             while !found_event {
-                let log_handler = first_client_log_handler.read().await;
+                let log_handler = first_client_log_handler.read();
                 let events = &(*log_handler).events;
 
                 for event in events {
