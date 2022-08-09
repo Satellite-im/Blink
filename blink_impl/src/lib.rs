@@ -1,6 +1,9 @@
 mod behavior;
 pub mod peer_to_peer_service;
 
+#[cfg(test)]
+mod when_using_peer_to_peer_service;
+
 extern crate core;
 
 use anyhow::Result;
