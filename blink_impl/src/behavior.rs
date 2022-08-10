@@ -17,6 +17,7 @@ use std::{
     hash::{Hash, Hasher},
     time::Duration,
 };
+use libp2p::ping::{Ping, PingConfig, PingEvent};
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
@@ -28,6 +29,7 @@ pub(crate) struct BlinkBehavior {
     pub(crate) identity: Identify,
     pub(crate) relay: Relay,
     pub(crate) mdns: Mdns,
+    pub(crate) ping: Ping,
 }
 
 impl BlinkBehavior {
@@ -65,12 +67,15 @@ impl BlinkBehavior {
             key_pair.public(),
         ));
 
+        let ping = Ping::new(PingConfig::new().with_keep_alive(true));
+
         Ok(Self {
             gossip_sub,
             kademlia,
             relay,
             identity,
             mdns,
+            ping
         })
     }
 }
@@ -82,6 +87,13 @@ pub(crate) enum BehaviourEvent {
     KademliaEvent(KademliaEvent),
     IdentifyEvent(IdentifyEvent),
     MdnsEvent(MdnsEvent),
+    PingEvent(PingEvent)
+}
+
+impl From<PingEvent> for BehaviourEvent {
+    fn from(ping_event: PingEvent) -> Self {
+        BehaviourEvent::PingEvent(ping_event)
+    }
 }
 
 impl From<MdnsEvent> for BehaviourEvent {
