@@ -5,10 +5,7 @@ use sata::{Kind, Sata};
 use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
 use libp2p::swarm::dial_opts::DialOpts;
 use sata::libipld::IpldCodec;
-use tokio::{
-    sync::mpsc::Receiver,
-    sync::RwLock
-};
+use tokio::sync::mpsc::Receiver;
 use warp::{
     crypto::DID,
     data::DataType,
@@ -20,6 +17,7 @@ use warp::{
     pocket_dimension::PocketDimension,
     Extension, SingleHandle,
 };
+use warp::sync::RwLock;
 use crate::did_keypair_to_libp2p_keypair;
 use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
@@ -182,15 +180,14 @@ async fn create_service(
     let mut addr_to_send = None;
     let mut break_loop = false;
     while !break_loop {
-        let log_handler_read = log_handler.read().await;
-
-        for event in &(*log_handler_read).events {
+        for event in &log_handler.read().events {
             if let Event::NewListenAddr(addr) = event {
                 break_loop = true;
                 addr_to_send = Some(addr.clone());
                 break;
             }
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
     let mut map = Vec::new();
@@ -204,7 +201,7 @@ async fn create_service(
         multi_pass,
         id_keys,
         map,
-        receiver,
+        receiver
     )
 }
 
@@ -217,81 +214,24 @@ async fn subscribe_to_topic(
 
     let mut found_event = false;
     while !found_event {
-        let log_read = logger.read().await;
-        for event in &(*log_read).events {
+        for event in &logger.read().events {
             if let Event::SubscribedToTopic(subs) = event {
                 if subs.eq(&topic) {
                     found_event = true;
                 }
             }
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
-}
-
-async fn assert_message(receiver: &mut Receiver<MessageContent>, message_content: String) {
-    let mut found = false;
-    while !found {
-        let mes = receiver.recv().await;
-        if let Some(con) = mes {
-            let content = std::str::from_utf8(&con.1.data()).unwrap().to_string();
-            if content.eq(&message_content) {
-                found = true;
-            }
-        }
-    }
-}
-
-async fn pair_to_another_peer(peer_to_peer_service: &mut PeerToPeerService, dial_opts: DialOpts, log_handler: Arc<RwLock<LogHandler>>) {
-    peer_to_peer_service.pair_to_another_peer(dial_opts).await.unwrap();
-
-    let mut found = false;
-    while !found {
-        let read = log_handler.read().await;
-        let events = &(*read).events;
-
-        dbg!(events);
-        for event in events {
-            if let Event::SubscribedToTopic(_) = event {
-                found = true;
-            }
-        }
-    }
-}
-
-#[tokio::test]
-async fn send_message_sends_it_to_every_recipient() {
-    tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let message_content = "Test".to_string();
-        let (_, log, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver) = create_service(Vec::new(), true).await;
-        let (_, b_log, b_peer_id, _, _, did_b, service_b_address, mut b_receiver) = create_service(Vec::new(), true).await;
-        service_a_address.extend(service_b_address.into_iter());
-        let (mut service_c, c_log, _, _, _, _, _, _) = create_service(service_a_address, true).await;
-
-        pair_to_another_peer(&mut service_c, a_peer_id.into(), c_log.clone()).await;
-        pair_to_another_peer(&mut service_c, b_peer_id.into(), b_log.clone()).await;
-
-        let mut sata = Sata::default();
-        {
-            sata.add_recipient((*did_a).as_ref()).unwrap();
-            sata.add_recipient((*did_b).as_ref()).unwrap();
-        }
-        let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
-        assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
-
-        service_c.send(to_send).await.unwrap();
-
-        assert_message(&mut a_receiver, message_content.clone()).await;
-        assert_message(&mut b_receiver, message_content.clone()).await;
-    })
-        .await
-        .expect("Timeout");
 }
 
 #[tokio::test]
 async fn open_does_not_throw() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
         create_service(Vec::new(), true).await;
-    }).await.expect("timeout");
+    })
+        .await
+        .expect("timeout");
 }
 
 #[tokio::test]
@@ -300,15 +240,9 @@ async fn connecting_to_peer_does_not_generate_errors() {
         let (_, _, peer_id, _, _, _, addr_map, _)
             = create_service(Vec::new(), true).await;
 
-        let (mut first_client, log_handler, _, _, _, _, _, _)
-            = create_service(addr_map, true).await;
+        let (mut first_client, _, _, _, _, _, _, _) = create_service(addr_map, true).await;
 
-        // first_client
-        //     .pair_to_another_peer(peer_id.into())
-        //     .await
-        //     .unwrap();
-
-        //pair_to_another_peer(&mut first_client, peer_id.into(), log_handler).await;
+        first_client.pair_to_another_peer(peer_id.into()).await.unwrap();
     })
         .await
         .expect("Timeout");
@@ -367,15 +301,14 @@ async fn message_reaches_other_client() {
 
         // wait for connection to be good to go
         while !connection_ok {
-            let first_client_log_read = first_client_log_handler.read().await;
-            let events = &(*first_client_log_read).events;
-
-            for event in events {
+            for event in &first_client_log_handler.read().events {
                 if let Event::PeerIdentified = event {
                     connection_ok = true;
                     break;
                 }
             }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         first_client
@@ -430,15 +363,14 @@ async fn message_to_another_client_is_added_to_cache() {
 
         // wait for connection to be good to go
         while !connection_ok {
-            let first_client_log_read = first_client_log_handler.read().await;
-            let events = &(*first_client_log_read).events;
-
-            for event in events {
+            for event in &first_client_log_handler.read().events {
                 if let Event::PeerIdentified = event {
                     connection_ok = true;
                     break;
                 }
             }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         first_client
@@ -447,10 +379,10 @@ async fn message_to_another_client_is_added_to_cache() {
             .unwrap();
 
         loop {
-            let cache_read = second_client_cache.read().await;
-            if (*cache_read).data_added.len() > 0 {
+            if second_client_cache.read().data_added.len() > 0 {
                 break;
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
         .await
@@ -473,12 +405,12 @@ async fn failure_to_identify_peer_causes_error() {
 
         let mut found_error = false;
         while !found_error {
-            let log_handler_read = log_handler_second_client.read().await;
-            for event in &(*log_handler_read).events {
+            for event in &log_handler_second_client.read().events {
                 if let Event::FailureToIdentifyPeer = event {
                     found_error = true;
                 }
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
         .await
@@ -501,15 +433,71 @@ async fn subscribe_to_common_channel_after_pair() {
 
         let mut found_event = false;
         while !found_event {
-            let log_handler = first_client_log_handler.read().await;
-            let events = &(*log_handler).events;
-
-            for event in events {
+            for event in &first_client_log_handler.read().events {
                 if let Event::SubscribedToTopic(_) = event {
                     found_event = true;
                 }
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    })
+        .await
+        .expect("Timeout");
+}
+
+async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOpts, logger: Arc<RwLock<LogHandler>>) {
+    service.pair_to_another_peer(dial_opts).await.unwrap();
+
+    let mut found_event = false;
+    while !found_event {
+        for event in &logger.read().events {
+            if let Event::SubscribedToTopic(_) = event {
+                found_event = true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn assert_message(receiver: &mut Receiver<MessageContent>) {
+    let mut message_received = false;
+
+    while !message_received {
+        if let Some(_) = receiver.recv().await {
+            message_received = true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn send_message_sends_it_to_every_recipient() {
+    tokio::time::timeout(Duration::from_secs(7), async {
+        let message_content = "Test".to_string();
+        let (_, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver)
+            = create_service(Vec::new(), true).await;
+        let (_, b_log, b_peer_id, _, _, did_b, service_b_address, mut b_receiver)
+            = create_service(Vec::new(), true).await;
+        service_a_address.extend(service_b_address.into_iter());
+
+        let (mut service_c, c_log, _, _, _, _, _, _)
+            = create_service(service_a_address, true).await;
+
+        pair_to_another_peer(&mut service_c, a_peer_id.into(), c_log.clone()).await;
+        pair_to_another_peer(&mut service_c, b_peer_id.into(), c_log.clone()).await;
+
+        let mut sata = Sata::default();
+        {
+            sata.add_recipient((*did_a).as_ref()).unwrap();
+            sata.add_recipient((*did_b).as_ref()).unwrap();
+        }
+        let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
+        assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
+
+        service_c.send(to_send).await.unwrap();
+
+        assert_message(&mut a_receiver).await;
+        assert_message(&mut b_receiver).await;
     })
         .await
         .expect("Timeout");

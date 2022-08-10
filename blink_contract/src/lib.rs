@@ -25,6 +25,7 @@ pub enum Event {
     PeerConnectionClosed(String),
     ConnectionEstablished(String),
     TaskCancelled,
+    CouldntFindTopicForDid
 }
 
 #[async_trait]
