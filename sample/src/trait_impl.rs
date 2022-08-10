@@ -81,6 +81,9 @@ impl EventBus for EventHandlerImpl {
             Event::TaskCancelled => {
                 info!("Event: Task cancelled");
             }
+            Event::CouldntFindTopicForDid => {
+                info!("Event: Couldn't find topic for did")
+            }
         }
     }
 }

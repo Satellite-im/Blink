@@ -2,7 +2,7 @@ use crate::{
     did_key::Ed25519KeyPair,
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
-use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
+use blink_impl::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
 use log::{error, info};
 use sata::{libipld::IpldCodec, Kind, Sata};
@@ -14,7 +14,6 @@ use tokio::{
     sync::mpsc::Receiver
 };
 use warp::crypto::{did_key, DID};
-use log::{error, info};
 use warp::sync::RwLock;
 
 mod trait_impl;
@@ -44,6 +43,9 @@ async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
     let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
         None,
     )));
+
+    info!("DID Key: {}", (*id_keys).to_string());
+
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let cache = Arc::new(RwLock::new(PocketDimensionImpl::default()));
     let log_handler = Arc::new(RwLock::new(EventHandlerImpl::default()));
@@ -131,6 +133,38 @@ fn create_command_map_handler() -> HashMap<
             },
         ),
     );
+
+    map_command.insert("send".to_string(), Box::new(
+        |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
+            Box::pin(async move {
+                if args.len() >= 2 {
+                    let mut sata = Sata::default();
+                    for item in &args[..args.len() - 1] {
+                        match DID::try_from(item.clone()) {
+                            Ok(did_key) => {
+                                if let Err(e) = sata.add_recipient(&did_key.as_ref()) {
+                                    error!("{}", anyhow::anyhow!(e).to_string());
+                                }
+                            }
+                            Err(e) => {
+                                error!("{}", e.enum_to_string());
+                            }
+                        }
+                    }
+
+                    match sata.encode(IpldCodec::DagJson, Kind::Dynamic, args.last().unwrap()) {
+                        Ok(o) => {
+                            if let Err(x) = service.write().send(o).await {
+                                error!("{}", anyhow::anyhow!(x).to_string());
+                            }
+                        }
+                        Err(e) => {
+                            error!("{}", anyhow::anyhow!(e).to_string());
+                        }
+                    }
+                }
+            })
+        }));
 
     map_command.insert(
         "publish".to_string(),
