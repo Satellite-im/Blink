@@ -335,7 +335,9 @@ async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOp
         }
     }
 
-    logger.write().events.remove(to_remove);
+    let event_number = logger.read().events.len();
+    logger.write().events.swap_remove(to_remove);
+    assert_eq!(event_number - 1, logger.read().events.len());
 
     result.unwrap()
 }
@@ -351,34 +353,36 @@ async fn assert_message(receiver: &mut Receiver<MessageContent>) {
     }
 }
 
-// #[tokio::test]
-// async fn send_message_sends_it_to_every_recipient() {
-//     tokio::time::timeout(Duration::from_secs(7), async {
-//         let message_content = "Test".to_string();
-//         let (_, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver)
-//             = create_service(Vec::new(), true).await;
-//         let (_, _, b_peer_id, _, _, did_b, service_b_address, mut b_receiver)
-//             = create_service(Vec::new(), true).await;
-//         service_a_address.extend(service_b_address.into_iter());
-//
-//         let (mut service_c, c_log, _, _, _, _, _, _)
-//             = create_service(service_a_address, true).await;
-//
-//         pair_to_another_peer(&mut service_c, a_peer_id.into(), c_log.clone()).await;
-//         pair_to_another_peer(&mut service_c, b_peer_id.into(), c_log.clone()).await;
-//
-//         let mut sata = Sata::default();
-//         sata.add_recipient((*did_a).as_ref()).unwrap();
-//         sata.add_recipient((*did_b).as_ref()).unwrap();
-//
-//         let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
-//         assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
-//
-//         service_c.send(to_send).await.unwrap();
-//
-//         assert_message(&mut a_receiver).await;
-//         assert_message(&mut b_receiver).await;
-//     })
-//         .await
-//         .expect("Timeout");
-// }
+#[tokio::test]
+async fn send_message_sends_it_to_every_recipient() {
+    tokio::time::timeout(Duration::from_secs(7), async {
+        let message_content = "Test".to_string();
+        let (cli_a, _, _, _, _, mut service_a_address, mut a_receiver)
+            = create_service(Vec::new(), true).await;
+        let (cli_b, _, _, _, _, service_b_address, mut b_receiver)
+            = create_service(Vec::new(), true).await;
+        service_a_address.extend(service_b_address.into_iter());
+
+        let (mut service_c, c_log, _, _, _, _, _)
+            = create_service(service_a_address.clone(), true).await;
+
+        let (did_a, _) = pair_to_another_peer(&mut service_c, service_a_address[0].clone().into(), c_log.clone()).await;
+        let (did_b, _) = pair_to_another_peer(&mut service_c, service_a_address[1].clone().into(), c_log.clone()).await;
+
+        assert_ne!(did_a, did_b);
+
+        let mut sata = Sata::default();
+        sata.add_recipient(did_a.as_ref()).unwrap();
+        sata.add_recipient(did_b.as_ref()).unwrap();
+
+        let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
+        assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
+
+        service_c.send(to_send).await.unwrap();
+
+        assert_message(&mut a_receiver).await;
+        assert_message(&mut b_receiver).await;
+    })
+        .await
+        .expect("Timeout");
+}
