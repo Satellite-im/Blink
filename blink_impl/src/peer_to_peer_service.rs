@@ -198,7 +198,6 @@ impl PeerToPeerService {
                 }
             }
             BlinkCommand::PublishToTopic(name, sata) => {
-                println!("Message arrived");
                 let serialized_result = bincode::serialize(&sata);
                 match serialized_result {
                     Ok(serialized) => {
@@ -207,9 +206,6 @@ impl PeerToPeerService {
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
                             logger.write().event_occurred(Event::ErrorPublishingData(err.to_string()));
-                            println!("Error sending");
-                        } else {
-                            println!("Message published");
                         }
                     }
                     Err(_) => {

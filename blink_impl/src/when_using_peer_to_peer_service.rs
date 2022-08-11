@@ -21,7 +21,7 @@ use warp::sync::RwLock;
 use crate::{did_keypair_to_libp2p_keypair};
 use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
-const TIMEOUT_SECS: u64 = 5;
+const TIMEOUT_SECS: u64 = 1;
 
 #[derive(Default)]
 struct TestCache {
@@ -231,7 +231,7 @@ async fn connecting_to_peer_does_not_generate_errors() {
 #[tokio::test]
 async fn message_reaches_other_client() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (_, _,  second_client_peer_id, _, _, second_client_did, second_client_addr, mut message_rx) =
+        let (mut second_client, _,  second_client_peer_id, _, _, second_client_did, second_client_addr, mut message_rx) =
             create_service(Vec::new(), true).await;
 
         let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
@@ -247,7 +247,6 @@ async fn message_reaches_other_client() {
 
         while message_rx.recv().await.is_none() {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            dbg!(&first_client_log_handler.read().events);
         }
     })
         .await
