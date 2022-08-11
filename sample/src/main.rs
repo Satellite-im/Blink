@@ -112,28 +112,6 @@ fn create_command_map_handler() -> HashMap<
         ),
     );
 
-    map_command.insert(
-        "subscribe".to_string(),
-        Box::new(
-            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
-                Box::pin(async move {
-                    if args.len() == 1 {
-                        match service.write().subscribe_to_topic(args[0].clone()).await {
-                            Ok(_) => {
-                                info!("Success sending topic subscription");
-                            }
-                            Err(_) => {
-                                error!("Failure to send topic subscription");
-                            }
-                        }
-                    } else {
-                        error!("subscribe topic");
-                    }
-                })
-            },
-        ),
-    );
-
     map_command.insert("send".to_string(), Box::new(
         |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
             Box::pin(async move {
@@ -165,38 +143,6 @@ fn create_command_map_handler() -> HashMap<
                 }
             })
         }));
-
-    map_command.insert(
-        "publish".to_string(),
-        Box::new(
-            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
-                Box::pin(async move {
-                    if args.len() == 2 {
-                        let sata = Sata::default();
-                        let result =
-                            sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
-                        if result.is_ok() {
-                            match service.write()
-                                .publish_message_to_topic(args[0].clone(), result.unwrap())
-                                .await
-                            {
-                                Ok(_) => {
-                                    info!("Success sending publish message request");
-                                }
-                                Err(_) => {
-                                    error!("Failure sending publish message request");
-                                }
-                            }
-                        } else {
-                            error!("Error encoding data");
-                        }
-                    } else {
-                        error!("publish topic content")
-                    }
-                })
-            },
-        ),
-    );
 
     map_command
 }

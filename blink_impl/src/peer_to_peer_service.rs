@@ -4,6 +4,7 @@ use anyhow::Result;
 use blink_contract::{Event, EventBus};
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
+use serde::{Serialize, Deserialize};
 use libp2p::{
     gossipsub::TopicHash,
     mdns::MdnsEvent,
@@ -25,6 +26,7 @@ use libp2p::{
 };
 use sata::Sata;
 use std::sync::{atomic::Ordering, Arc};
+use std::time::UNIX_EPOCH;
 use tokio::{
     sync::{
         mpsc::{
@@ -49,11 +51,37 @@ pub type MessageContent = (TopicHash, Sata);
 const CHANNEL_SIZE: usize = 64;
 
 #[derive(Debug)]
-pub enum BlinkCommand {
+pub(crate) enum BlinkCommand {
     FindNearest(PeerId),
     Dial(DialOpts),
     Subscribe(String),
-    PublishToTopic(TopicName, Sata),
+    PublishToTopic(TopicName, SataWrapper),
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub(crate) struct SataWrapper {
+    sata: Vec<u8>,
+    time_sent: u128,
+}
+
+impl SataWrapper {
+    pub(crate) fn new(sata: Sata) -> Result<HashMap<String, Self>> {
+        let mut result = HashMap::new();
+        let serialized = bincode::serialize(&sata)?;
+        if let Some(recipients) = sata.recipients() {
+            for recipient in recipients {
+                let did = DID::from(recipient);
+                let key = did.to_string();
+                let time = std::time::SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
+                result.insert(key, Self {
+                    sata: serialized.clone(),
+                    time_sent: time,
+                });
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 pub struct PeerToPeerService {
@@ -226,7 +254,6 @@ impl PeerToPeerService {
                                     let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
                                     {
                                         let pb = their_public.to_string();
-                                        println!("key: {}", &pb);
                                         map.write().insert(pb, topic.clone());
                                     }
                                     let topic_subs = IdentTopic::new(&topic);
@@ -262,14 +289,22 @@ impl PeerToPeerService {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => match gsp {
                 GossipsubEvent::Message { message, .. } => {
                     let message_data = message.data;
-                    let data = bincode::deserialize::<Sata>(&message_data);
-                    match data {
-                        Ok(info) => {
-                            if let Err(e) = cache.write().add_data(DataType::Messaging, &info) {
-                                logger.write().event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
-                            }
-                            if let Err(_) = message_sender.send((message.topic, info.clone())).await {
-                                logger.write().event_occurred(Event::FailedToSendMessage);
+                    let sata_sent = bincode::deserialize::<SataWrapper>(&message_data);
+                    match sata_sent {
+                        Ok(wrapped) => {
+                            let data = bincode::deserialize::<Sata>(&wrapped.sata);
+                            match data {
+                                Ok(info) => {
+                                    if let Err(e) = cache.write().add_data(DataType::Messaging, &info) {
+                                        logger.write().event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
+                                    }
+                                    if let Err(_) = message_sender.send((message.topic, info.clone())).await {
+                                        logger.write().event_occurred(Event::FailedToSendMessage);
+                                    }
+                                }
+                                Err(_) => {
+                                    logger.write().event_occurred(Event::ErrorDeserializingData);
+                                }
                             }
                         }
                         Err(_) => {
@@ -364,7 +399,7 @@ impl PeerToPeerService {
         Ok(swarm)
     }
 
-    pub async fn subscribe_to_topic(&self, topic_name: String) -> Result<()> {
+    async fn subscribe_to_topic(&self, topic_name: String) -> Result<()> {
         self.command_channel
             .send(BlinkCommand::Subscribe(topic_name))
             .await?;
@@ -378,32 +413,15 @@ impl PeerToPeerService {
         Ok(())
     }
 
-    pub async fn publish_message_to_topic(&mut self, topic: String, sata: Sata) -> Result<()> {
-        self.command_channel
-            .send(BlinkCommand::PublishToTopic(topic, sata))
-            .await?;
-        Ok(())
-    }
-
     pub async fn send(&mut self, sata: Sata) -> Result<()> {
-        if let Some(recipients) = sata.recipients() {
-            for item in recipients {
-                let did = DID::from(item);
-                let key = did.to_string();
-                println!("looking for {}", key);
-                let key_content = {
-                    if let Some(res) = self.map_peer_topic.read().get(&key) {
-                        Some(res.clone())
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some(k) = key_content {
-                    self.publish_message_to_topic(k.clone(), sata.clone()).await?;
-                } else {
-                    self.event_bus.write().event_occurred(Event::CouldntFindTopicForDid);
-                }
+        let sata_sent = SataWrapper::new(sata)?;
+        for (key, val) in sata_sent {
+            if let Some(topic) = self.map_peer_topic.read().get(&key) {
+                self.command_channel
+                    .send(BlinkCommand::PublishToTopic(topic.clone(), val))
+                    .await?;
+            } else {
+                self.event_bus.write().event_occurred(Event::CouldntFindTopicForDid);
             }
         }
 

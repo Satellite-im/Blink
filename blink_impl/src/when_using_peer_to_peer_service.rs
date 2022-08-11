@@ -1,5 +1,5 @@
 use blink_contract::{Event, EventBus};
-use did_key::Ed25519KeyPair;
+use did_key::{DIDKey, Ed25519KeyPair};
 use libp2p::{Multiaddr, PeerId};
 use sata::{Kind, Sata};
 use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
@@ -18,7 +18,7 @@ use warp::{
     Extension, SingleHandle,
 };
 use warp::sync::RwLock;
-use crate::did_keypair_to_libp2p_keypair;
+use crate::{did_keypair_to_libp2p_keypair};
 use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
 const TIMEOUT_SECS: u64 = 1;
@@ -205,26 +205,6 @@ async fn create_service(
     )
 }
 
-async fn subscribe_to_topic(
-    client: &mut PeerToPeerService,
-    topic: String,
-    logger: Arc<RwLock<LogHandler>>,
-) {
-    client.subscribe_to_topic(topic.clone()).await.unwrap();
-
-    let mut found_event = false;
-    while !found_event {
-        for event in &logger.read().events {
-            if let Event::SubscribedToTopic(subs) = event {
-                if subs.eq(&topic) {
-                    found_event = true;
-                }
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
 #[tokio::test]
 async fn open_does_not_throw() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
@@ -240,21 +220,9 @@ async fn connecting_to_peer_does_not_generate_errors() {
         let (_, _, peer_id, _, _, _, addr_map, _)
             = create_service(Vec::new(), true).await;
 
-        let (mut first_client, _, _, _, _, _, _, _) = create_service(addr_map, true).await;
+        let (mut first_client, event_bus_handler, _, _, _, _, _, _) = create_service(addr_map, true).await;
 
-        first_client.pair_to_another_peer(peer_id.into()).await.unwrap();
-    })
-        .await
-        .expect("Timeout");
-}
-
-#[tokio::test]
-async fn subscribe_to_topic_does_not_cause_errors() {
-    tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (mut client, log_handler, _, _, _, _, _, _) =
-            create_service(Vec::new(), true).await;
-
-        subscribe_to_topic(&mut client, "some topic".to_string(), log_handler.clone()).await;
+        pair_to_another_peer(&mut first_client, peer_id.into(), event_bus_handler.clone()).await;
     })
         .await
         .expect("Timeout");
@@ -264,57 +232,19 @@ async fn subscribe_to_topic_does_not_cause_errors() {
 async fn message_reaches_other_client() {
     const TOPIC_NAME: &str = "SomeTopic";
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (
-            mut second_client,
-            log_handler,
-            second_client_peer_id,
-            _,
-            _,
-            _,
-            second_client_addr,
-            mut message_rx
-        ) = create_service(Vec::new(), true).await;
+        let (_, _,  second_client_peer_id, _, _, second_client_did, second_client_addr, mut message_rx) =
+            create_service(Vec::new(), true).await;
 
         let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
             create_service(second_client_addr, true).await;
 
-        first_client
-            .pair_to_another_peer(second_client_peer_id.into())
-            .await
-            .unwrap();
+        pair_to_another_peer(&mut first_client, second_client_peer_id.into(), first_client_log_handler.clone()).await;
 
-        subscribe_to_topic(
-            &mut first_client,
-            TOPIC_NAME.to_string(),
-            first_client_log_handler.clone(),
-        )
-            .await;
+        let mut some_data = Sata::default();
+        some_data.add_recipient((*second_client_did).as_ref()).unwrap();
 
-        subscribe_to_topic(
-            &mut second_client,
-            TOPIC_NAME.to_string(),
-            log_handler.clone(),
-        )
-            .await;
-
-        let mut connection_ok = false;
-
-        // wait for connection to be good to go
-        while !connection_ok {
-            for event in &first_client_log_handler.read().events {
-                if let Event::PeerIdentified = event {
-                    connection_ok = true;
-                    break;
-                }
-            }
-
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-
-        first_client
-            .publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default())
-            .await
-            .unwrap();
+        println!("About to send");
+        first_client.send(some_data).await.unwrap();
 
         while message_rx.recv().await.is_none() {}
     })
@@ -340,43 +270,7 @@ async fn message_to_another_client_is_added_to_cache() {
         let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
             create_service(second_client_addr, true).await;
 
-        first_client
-            .pair_to_another_peer(second_client_peer_id.into())
-            .await
-            .unwrap();
-
-        subscribe_to_topic(
-            &mut first_client,
-            TOPIC_NAME.to_string(),
-            first_client_log_handler.clone(),
-        )
-            .await;
-
-        subscribe_to_topic(
-            &mut second_client,
-            TOPIC_NAME.to_string(),
-            log_handler.clone(),
-        )
-            .await;
-
-        let mut connection_ok = false;
-
-        // wait for connection to be good to go
-        while !connection_ok {
-            for event in &first_client_log_handler.read().events {
-                if let Event::PeerIdentified = event {
-                    connection_ok = true;
-                    break;
-                }
-            }
-
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-
-        first_client
-            .publish_message_to_topic(TOPIC_NAME.to_string(), Sata::default())
-            .await
-            .unwrap();
+        pair_to_another_peer(&mut first_client, second_client_peer_id.into(), first_client_log_handler.clone()).await;
 
         loop {
             if second_client_cache.read().data_added.len() > 0 {
@@ -476,7 +370,7 @@ async fn send_message_sends_it_to_every_recipient() {
         let message_content = "Test".to_string();
         let (_, _, a_peer_id, _, _, did_a, mut service_a_address, mut a_receiver)
             = create_service(Vec::new(), true).await;
-        let (_, b_log, b_peer_id, _, _, did_b, service_b_address, mut b_receiver)
+        let (_, _, b_peer_id, _, _, did_b, service_b_address, mut b_receiver)
             = create_service(Vec::new(), true).await;
         service_a_address.extend(service_b_address.into_iter());
 

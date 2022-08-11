@@ -448,6 +448,7 @@ dependencies = [
  "hmac-sha512",
  "libp2p",
  "sata",
+ "serde",
  "tokio",
  "warp",
 ]
