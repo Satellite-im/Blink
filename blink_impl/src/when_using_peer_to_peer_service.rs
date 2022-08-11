@@ -286,61 +286,33 @@ async fn message_to_another_client_is_added_to_cache() {
         .expect("Timeout");
 }
 
-// #[tokio::test]
-// async fn failure_to_identify_peer_causes_error() {
-//     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-//         let (_, _, first_client_peer_id, _, _, _, first_client_address, _) =
-//             create_service(Vec::new(), false).await;
-//
-//         let (mut second_client, log_handler_second_client, _, _, _, _, _, _) =
-//             create_service(first_client_address, false).await;
-//
-//         second_client
-//             .pair_to_another_peer(first_client_peer_id.into())
-//             .await
-//             .unwrap();
-//
-//         let mut found_error = false;
-//         while !found_error {
-//             for event in &log_handler_second_client.read().events {
-//                 if let Event::FailureToIdentifyPeer = event {
-//                     found_error = true;
-//                 }
-//             }
-//             tokio::time::sleep(Duration::from_millis(10)).await;
-//         }
-//     })
-//         .await
-//         .expect("Timeout");
-// }
+#[tokio::test]
+async fn failure_to_identify_peer_causes_error() {
+    tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
+        let (cli, _, _, _, _, first_client_address, _) =
+            create_service(Vec::new(), false).await;
 
-// #[tokio::test]
-// async fn subscribe_to_common_channel_after_pair() {
-//     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-//         let (_, _, second_client_peer_id, _, _, _, second_client_addr, _) =
-//             create_service(Vec::new(), true).await;
-//
-//         let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
-//             create_service(second_client_addr, true).await;
-//
-//         first_client
-//             .pair_to_another_peer(second_client_peer_id.into())
-//             .await
-//             .unwrap();
-//
-//         let mut found_event = false;
-//         while !found_event {
-//             for event in &first_client_log_handler.read().events {
-//                 if let Event::SubscribedToTopic(_) = event {
-//                     found_event = true;
-//                 }
-//             }
-//             tokio::time::sleep(Duration::from_millis(10)).await;
-//         }
-//     })
-//         .await
-//         .expect("Timeout");
-// }
+        let (mut second_client, log_handler_second_client, _, _, _, _, _) =
+            create_service(first_client_address.clone(), false).await;
+
+        second_client
+            .pair_to_another_peer(first_client_address.first().unwrap().clone().into())
+            .await
+            .unwrap();
+
+        let mut found_error = false;
+        while !found_error {
+            for event in &log_handler_second_client.read().events {
+                if let Event::FailureToIdentifyPeer = event {
+                    found_error = true;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+        .await
+        .expect("Timeout");
+}
 
 async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOpts, logger: Arc<RwLock<LogHandler>>) -> (DID, String){
     service.pair_to_another_peer(dial_opts).await.unwrap();
