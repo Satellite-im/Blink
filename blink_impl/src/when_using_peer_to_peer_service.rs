@@ -147,7 +147,6 @@ async fn create_service(
 ) -> (
     PeerToPeerService,
     Arc<RwLock<LogHandler>>,
-    PeerId,
     Arc<RwLock<TestCache>>,
     Arc<RwLock<MultiPassImpl>>,
     Arc<DID>,
@@ -196,7 +195,6 @@ async fn create_service(
     (
         service,
         log_handler,
-        peer_id,
         cache,
         multi_pass,
         id_keys,
@@ -217,12 +215,13 @@ async fn open_does_not_throw() {
 #[tokio::test]
 async fn connecting_to_peer_does_not_generate_errors() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (_, _, peer_id, _, _, _, addr_map, _)
+        let (second_client, _, _, _, _, addr_map, _)
             = create_service(Vec::new(), true).await;
 
-        let (mut first_client, event_bus_handler, _, _, _, _, _, _) = create_service(addr_map, true).await;
+        let (mut first_client, event_bus_handler, _, _, _, _, _)
+            = create_service(addr_map.clone(), true).await;
 
-        pair_to_another_peer(&mut first_client, peer_id.into(), event_bus_handler.clone()).await;
+        pair_to_another_peer(&mut first_client, addr_map.first().unwrap().clone().into(), event_bus_handler.clone()).await;
     })
         .await
         .expect("Timeout");
@@ -231,10 +230,10 @@ async fn connecting_to_peer_does_not_generate_errors() {
 #[tokio::test]
 async fn message_reaches_other_client() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (mut second_client, _,  second_client_peer_id, _, _, second_client_did, second_client_addr, mut message_rx) =
+        let (mut second_client, _,  second_client_peer_id, _, second_client_did, second_client_addr, mut message_rx) =
             create_service(Vec::new(), true).await;
 
-        let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
+        let (mut first_client, first_client_log_handler, _, _, _, _, _) =
             create_service(second_client_addr.clone(), true).await;
 
         let (did_from_pair, _) =
