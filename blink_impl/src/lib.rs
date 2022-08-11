@@ -1,4 +1,5 @@
 mod behavior;
+mod event_handlers;
 pub mod peer_to_peer_service;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ use anyhow::Result;
 use did_key::{DIDKey, Ed25519KeyPair, KeyMaterial};
 use libp2p::identity::Keypair::Ed25519;
 use std::{sync::atomic::AtomicBool, sync::Arc};
+
 use warp::{crypto::DID, error::Error};
 
 pub type CancellationToken = Arc<AtomicBool>;

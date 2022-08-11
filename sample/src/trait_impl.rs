@@ -84,6 +84,9 @@ impl EventBus for EventHandlerImpl {
             Event::CouldntFindTopicForDid => {
                 info!("Event: Couldn't find topic for did")
             }
+            Event::GeneratedTopic(_, _) => {
+                info!("Event: Generated topic")
+            }
         }
     }
 }

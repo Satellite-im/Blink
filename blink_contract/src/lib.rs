@@ -17,6 +17,7 @@ pub enum Event {
     ErrorDeserializingData,
     ErrorSerializingData,
     ErrorPublishingData(String),
+    GeneratedTopic(DID, String),
     SubscribedToTopic(String),
     FailureToIdentifyPeer,
     PeerIdentified,

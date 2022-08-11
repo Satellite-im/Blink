@@ -445,11 +445,13 @@ dependencies = [
  "bincode",
  "blink_contract",
  "did-key",
+ "either",
  "hmac-sha512",
  "libp2p",
  "sata",
  "serde",
  "tokio",
+ "void",
  "warp",
 ]
 

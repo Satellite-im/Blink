@@ -60,8 +60,8 @@ pub(crate) enum BlinkCommand {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub(crate) struct SataWrapper {
-    sata: Vec<u8>,
-    time_sent: u128,
+    pub(crate) sata: Vec<u8>,
+    pub(crate) time_sent: u128,
 }
 
 impl SataWrapper {
@@ -198,6 +198,7 @@ impl PeerToPeerService {
                 }
             }
             BlinkCommand::PublishToTopic(name, sata) => {
+                println!("Message arrived");
                 let serialized_result = bincode::serialize(&sata);
                 match serialized_result {
                     Ok(serialized) => {
@@ -206,6 +207,9 @@ impl PeerToPeerService {
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
                             logger.write().event_occurred(Event::ErrorPublishingData(err.to_string()));
+                            println!("Error sending");
+                        } else {
+                            println!("Message published");
                         }
                     }
                     Err(_) => {
@@ -252,12 +256,13 @@ impl PeerToPeerService {
                             {
                                 Ok(_) => {
                                     let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
-                                    let pb = their_public.to_string();
+                                    let pb = their_public.clone().to_string();
                                     map.write().insert(pb, topic.clone());
 
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
+                                            logger.write().event_occurred(Event::GeneratedTopic(their_public, topic.clone()));
                                             logger.write().event_occurred(Event::SubscribedToTopic(topic));
                                             logger.write().event_occurred(Event::PeerIdentified);
                                         }
