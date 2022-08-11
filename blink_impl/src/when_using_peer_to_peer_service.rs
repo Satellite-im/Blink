@@ -230,7 +230,6 @@ async fn connecting_to_peer_does_not_generate_errors() {
 
 #[tokio::test]
 async fn message_reaches_other_client() {
-    const TOPIC_NAME: &str = "SomeTopic";
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
         let (_, _,  second_client_peer_id, _, _, second_client_did, second_client_addr, mut message_rx) =
             create_service(Vec::new(), true).await;
@@ -243,7 +242,6 @@ async fn message_reaches_other_client() {
         let mut some_data = Sata::default();
         some_data.add_recipient((*second_client_did).as_ref()).unwrap();
 
-        println!("About to send");
         first_client.send(some_data).await.unwrap();
 
         while message_rx.recv().await.is_none() {}
@@ -381,10 +379,9 @@ async fn send_message_sends_it_to_every_recipient() {
         pair_to_another_peer(&mut service_c, b_peer_id.into(), c_log.clone()).await;
 
         let mut sata = Sata::default();
-        {
-            sata.add_recipient((*did_a).as_ref()).unwrap();
-            sata.add_recipient((*did_b).as_ref()).unwrap();
-        }
+        sata.add_recipient((*did_a).as_ref()).unwrap();
+        sata.add_recipient((*did_b).as_ref()).unwrap();
+
         let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
         assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
 

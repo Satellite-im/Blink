@@ -252,10 +252,9 @@ impl PeerToPeerService {
                             {
                                 Ok(_) => {
                                     let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
-                                    {
-                                        let pb = their_public.to_string();
-                                        map.write().insert(pb, topic.clone());
-                                    }
+                                    let pb = their_public.to_string();
+                                    map.write().insert(pb, topic.clone());
+
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
@@ -397,13 +396,6 @@ impl PeerToPeerService {
             .build();
 
         Ok(swarm)
-    }
-
-    async fn subscribe_to_topic(&self, topic_name: String) -> Result<()> {
-        self.command_channel
-            .send(BlinkCommand::Subscribe(topic_name))
-            .await?;
-        Ok(())
     }
 
     pub async fn pair_to_another_peer(&mut self, dial_opts: DialOpts) -> Result<()> {
