@@ -252,35 +252,39 @@ async fn message_reaches_other_client() {
         .expect("Timeout");
 }
 
-// #[tokio::test]
-// async fn message_to_another_client_is_added_to_cache() {
-//     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-//         let (
-//             mut second_client,
-//             log_handler,
-//             second_client_peer_id,
-//             second_client_cache,
-//             _,
-//             _,
-//             second_client_addr,
-//             _
-//         ) = create_service(Vec::new(), true).await;
-//
-//         let (mut first_client, first_client_log_handler, _, _, _, _, _, _) =
-//             create_service(second_client_addr, true).await;
-//
-//         pair_to_another_peer(&mut first_client, second_client_peer_id.into(), first_client_log_handler.clone()).await;
-//
-//         loop {
-//             if second_client_cache.read().data_added.len() > 0 {
-//                 break;
-//             }
-//             tokio::time::sleep(Duration::from_millis(10)).await;
-//         }
-//     })
-//         .await
-//         .expect("Timeout");
-// }
+#[tokio::test]
+async fn message_to_another_client_is_added_to_cache() {
+    tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
+        let (
+            mut second_client,
+            _,
+            second_client_cache,
+            _,
+            _,
+            second_client_addr,
+            _
+        ) = create_service(Vec::new(), true).await;
+
+        let (mut first_client, first_client_log_handler, _, _, _, _, _) =
+            create_service(second_client_addr.clone(), true).await;
+
+        let (did_from_pair, _) = pair_to_another_peer(&mut first_client, second_client_addr.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
+
+        let mut some_data = Sata::default();
+        some_data.add_recipient(did_from_pair.as_ref()).unwrap();
+
+        first_client.send(some_data).await.unwrap();
+
+        loop {
+            if second_client_cache.read().data_added.len() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+        .await
+        .expect("Timeout");
+}
 
 // #[tokio::test]
 // async fn failure_to_identify_peer_causes_error() {
@@ -343,11 +347,14 @@ async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOp
 
     let mut found_event = false;
     let mut result = None;
+    let mut to_remove = 0;
+
     while !found_event {
-        for event in &logger.read().events {
+        for (i, event) in logger.read().events.iter().enumerate() {
             if let Event::GeneratedTopic(did, topic) = event {
                 result = Some((did.clone(), topic.clone()));
                 found_event = true;
+                to_remove = i;
                 break;
             }
         }
@@ -355,6 +362,8 @@ async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOp
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
+
+    logger.write().events.remove(to_remove);
 
     result.unwrap()
 }
