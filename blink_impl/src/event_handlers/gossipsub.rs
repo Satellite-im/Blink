@@ -57,9 +57,7 @@ impl EventHandler for GossipSubHandler {
                         }
                     }
                 }
-                GossipsubEvent::Subscribed { .. } => {}
-                GossipsubEvent::Unsubscribed { .. } => {}
-                GossipsubEvent::GossipsubNotSupported { .. } => {}
+                _ => { }
             }
         }
     }

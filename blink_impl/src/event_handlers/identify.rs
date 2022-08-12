@@ -42,14 +42,15 @@ impl EventHandler for IdentifyEventHandler {
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
-                                    let topic = generate_topic_from_key_exchange(&*did, &their_public);
+                                    let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
                                     let pb = their_public.clone().to_string();
                                     map.write().insert(pb, topic.clone());
 
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
-                                            logger.write().event_occurred(Event::GeneratedTopic(their_public, topic));
+                                            logger.write().event_occurred(Event::GeneratedTopic(their_public, topic.clone()));
+                                            logger.write().event_occurred(Event::SubscribedToTopic(topic));
                                             logger.write().event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
