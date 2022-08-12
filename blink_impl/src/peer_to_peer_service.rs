@@ -1,48 +1,41 @@
-use std::collections::HashMap;
-use crate::{behavior::{BehaviourEvent, BlinkBehavior}, {libp2p_pub_to_did, CancellationToken}, did_keypair_to_libp2p_keypair};
+use crate::{
+    behavior::{BehaviourEvent, BlinkBehavior},
+    did_keypair_to_libp2p_keypair, {libp2p_pub_to_did, CancellationToken},
+};
 use anyhow::Result;
 use blink_contract::{Event, EventBus};
 use did_key::{Ed25519KeyPair, Generate, KeyMaterial, ECDH};
 use hmac_sha512::Hash;
-use serde::{Serialize, Deserialize};
 use libp2p::{
-    gossipsub::TopicHash,
-    mdns::MdnsEvent,
     core::transport::upgrade,
     futures::StreamExt,
     gossipsub::GossipsubEvent,
+    gossipsub::IdentTopic,
+    gossipsub::TopicHash,
     identify::IdentifyEvent,
     identity::Keypair,
     kad::{KademliaEvent, QueryResult},
+    mdns::MdnsEvent,
     mplex, noise,
     swarm::dial_opts::DialOpts,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     tcp::{GenTcpConfig, TokioTcpTransport},
-    Multiaddr,
-    PeerId,
-    Swarm,
-    Transport,
-    gossipsub::IdentTopic
+    Multiaddr, PeerId, Swarm, Transport,
 };
 use sata::Sata;
+use std::collections::HashMap;
 use std::sync::{atomic::Ordering, Arc};
-use std::time::UNIX_EPOCH;
 use tokio::{
-    sync::{
-        mpsc::{
-            Receiver,
-            Sender
-        }
-    },
+    sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
 };
+use warp::sync::RwLock;
 use warp::{
     crypto::DID,
     data::DataType,
     multipass::{identity::Identifier, MultiPass},
     pocket_dimension::PocketDimension,
 };
-use warp::sync::RwLock;
 
 pub type TopicName = String;
 
@@ -53,33 +46,7 @@ const CHANNEL_SIZE: usize = 64;
 #[derive(Debug)]
 pub(crate) enum BlinkCommand {
     Dial(DialOpts),
-    PublishToTopic(TopicName, SataWrapper),
-}
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub(crate) struct SataWrapper {
-    pub(crate) sata: Vec<u8>,
-    pub(crate) time_sent: u128,
-}
-
-impl SataWrapper {
-    pub(crate) fn new(sata: Sata) -> Result<HashMap<String, Self>> {
-        let mut result = HashMap::new();
-        let serialized = bincode::serialize(&sata)?;
-        if let Some(recipients) = sata.recipients() {
-            for recipient in recipients {
-                let did = DID::from(recipient);
-                let key = did.to_string();
-                let time = std::time::SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
-                result.insert(key, Self {
-                    sata: serialized.clone(),
-                    time_sent: time,
-                });
-            }
-        }
-
-        Ok(result)
-    }
+    PublishToTopic(TopicName, Sata),
 }
 
 pub struct PeerToPeerService {
@@ -152,7 +119,7 @@ impl PeerToPeerService {
                 command_channel: command_tx,
                 task_handle: handler,
                 map_peer_topic: map,
-                event_bus: logger.clone()
+                event_bus: logger.clone(),
             },
             message_rx,
         ))
@@ -189,7 +156,9 @@ impl PeerToPeerService {
                         if let Err(err) =
                             swarm.behaviour_mut().gossip_sub.publish(topic, serialized)
                         {
-                            logger.write().event_occurred(Event::ErrorPublishingData(err.to_string()));
+                            logger
+                                .write()
+                                .event_occurred(Event::ErrorPublishingData(err.to_string()));
                         }
                     }
                     Err(_) => {
@@ -208,7 +177,7 @@ impl PeerToPeerService {
         multi_pass: Arc<RwLock<impl MultiPass>>,
         message_sender: &Sender<MessageContent>,
         did: Arc<DID>,
-        map: Arc<RwLock<HashMap<String, String>>>
+        map: Arc<RwLock<HashMap<String, String>>>,
     ) {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(event)) => match event {
@@ -231,32 +200,43 @@ impl PeerToPeerService {
 
                     match did_result {
                         Ok(their_public) => {
-                            match multi_pass.read()
+                            match multi_pass
+                                .read()
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
-                                    let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
+                                    let topic = Self::generate_topic_from_key_exchange(
+                                        &*did,
+                                        &their_public,
+                                    );
                                     let pb = their_public.clone().to_string();
                                     map.write().insert(pb, topic.clone());
 
                                     let topic_subs = IdentTopic::new(&topic);
                                     match swarm.behaviour_mut().gossip_sub.subscribe(&topic_subs) {
                                         Ok(_) => {
-                                            logger.write().event_occurred(Event::GeneratedTopic(their_public, topic.clone()));
-                                            logger.write().event_occurred(Event::SubscribedToTopic(topic));
+                                            logger.write().event_occurred(Event::GeneratedTopic(
+                                                their_public,
+                                                topic.clone(),
+                                            ));
+                                            logger
+                                                .write()
+                                                .event_occurred(Event::SubscribedToTopic(topic));
                                             logger.write().event_occurred(Event::PeerIdentified);
                                         }
                                         Err(er) => {
-                                            logger.write().event_occurred(Event::SubscriptionError(
-                                                er.to_string(),
-                                            ));
+                                            logger.write().event_occurred(
+                                                Event::SubscriptionError(er.to_string()),
+                                            );
                                         }
                                     }
                                 }
                                 Err(_) => {
                                     logger.write().event_occurred(Event::FailureToIdentifyPeer);
                                     if swarm.disconnect_peer_id(peer_id).is_err() {
-                                        logger.write().event_occurred(Event::FailureToDisconnectPeer);
+                                        logger
+                                            .write()
+                                            .event_occurred(Event::FailureToDisconnectPeer);
                                     }
                                 }
                             }
@@ -273,22 +253,17 @@ impl PeerToPeerService {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gsp)) => match gsp {
                 GossipsubEvent::Message { message, .. } => {
                     let message_data = message.data;
-                    let sata_sent = bincode::deserialize::<SataWrapper>(&message_data);
-                    match sata_sent {
-                        Ok(wrapped) => {
-                            let data = bincode::deserialize::<Sata>(&wrapped.sata);
-                            match data {
-                                Ok(info) => {
-                                    if let Err(e) = cache.write().add_data(DataType::Messaging, &info) {
-                                        logger.write().event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
-                                    }
-                                    if let Err(_) = message_sender.send((message.topic, info.clone())).await {
-                                        logger.write().event_occurred(Event::FailedToSendMessage);
-                                    }
-                                }
-                                Err(_) => {
-                                    logger.write().event_occurred(Event::ErrorDeserializingData);
-                                }
+                    let data = bincode::deserialize::<Sata>(&message_data);
+                    match data {
+                        Ok(info) => {
+                            if let Err(e) = cache.write().add_data(DataType::Messaging, &info) {
+                                logger
+                                    .write()
+                                    .event_occurred(Event::ErrorAddingToCache(e.enum_to_string()));
+                            }
+                            if let Err(_) = message_sender.send((message.topic, info.clone())).await
+                            {
+                                logger.write().event_occurred(Event::FailedToSendMessage);
                             }
                         }
                         Err(_) => {
@@ -327,10 +302,14 @@ impl PeerToPeerService {
                 KademliaEvent::PendingRoutablePeer { .. } => {}
             },
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                logger.write().event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
+                logger
+                    .write()
+                    .event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                logger.write().event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
+                logger
+                    .write()
+                    .event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
             }
             SwarmEvent::IncomingConnection { .. } => {}
             SwarmEvent::IncomingConnectionError { .. } => {}
@@ -348,12 +327,10 @@ impl PeerToPeerService {
     }
 
     fn generate_topic_from_key_exchange(private_key: &DID, public_key: &DID) -> String {
-        let private_key_pair = Ed25519KeyPair::from_secret_key(
-            &private_key.as_ref().private_key_bytes()
-        ).get_x25519();
-        let public_key_pair = Ed25519KeyPair::from_public_key(
-            &public_key.as_ref().public_key_bytes(),
-        ).get_x25519();
+        let private_key_pair =
+            Ed25519KeyPair::from_secret_key(&private_key.as_ref().private_key_bytes()).get_x25519();
+        let public_key_pair =
+            Ed25519KeyPair::from_public_key(&public_key.as_ref().public_key_bytes()).get_x25519();
         let exchange = private_key_pair.key_exchange(&public_key_pair);
         let hashed = Hash::hash(exchange);
         let topic = base64::encode(hashed);
@@ -391,14 +368,23 @@ impl PeerToPeerService {
     }
 
     pub async fn send(&mut self, sata: Sata) -> Result<()> {
-        let sata_sent = SataWrapper::new(sata)?;
-        for (key, val) in sata_sent {
-            if let Some(topic) = self.map_peer_topic.read().get(&key) {
+        let mut to_whom = Vec::new();
+        if let Some(mut rec) = sata.recipients() {
+            while !rec.is_empty() {
+                let did = DID::from(rec.pop().unwrap());
+                to_whom.push(did.to_string());
+            }
+        }
+
+        for who in &to_whom {
+            if let Some(topic) = self.map_peer_topic.read().get(who) {
                 self.command_channel
-                    .send(BlinkCommand::PublishToTopic(topic.clone(), val))
+                    .send(BlinkCommand::PublishToTopic(topic.clone(), sata.clone()))
                     .await?;
             } else {
-                self.event_bus.write().event_occurred(Event::CouldntFindTopicForDid);
+                self.event_bus
+                    .write()
+                    .event_occurred(Event::CouldntFindTopicForDid);
             }
         }
 

@@ -1,11 +1,13 @@
+use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use blink_contract::{Event, EventBus};
 use did_key::Ed25519KeyPair;
+use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::Multiaddr;
+use sata::libipld::IpldCodec;
 use sata::{Kind, Sata};
 use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
-use libp2p::swarm::dial_opts::DialOpts;
-use sata::libipld::IpldCodec;
 use tokio::sync::mpsc::Receiver;
+use warp::sync::RwLock;
 use warp::{
     crypto::DID,
     data::DataType,
@@ -17,8 +19,6 @@ use warp::{
     pocket_dimension::PocketDimension,
     Extension, SingleHandle,
 };
-use warp::sync::RwLock;
-use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
 const TIMEOUT_SECS: u64 = 1;
 
@@ -150,11 +150,9 @@ async fn create_service(
     Arc<RwLock<MultiPassImpl>>,
     Arc<DID>,
     Vec<Multiaddr>,
-    Receiver<MessageContent>
+    Receiver<MessageContent>,
 ) {
-    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
-        None,
-    )));
+    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(None)));
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let cache = Arc::new(RwLock::new(TestCache::default()));
     let log_handler = Arc::new(RwLock::new(LogHandler::new()));
@@ -170,8 +168,8 @@ async fn create_service(
         log_handler.clone(),
         cancellation_token.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let mut addr_to_send = None;
     let mut break_loop = false;
@@ -196,7 +194,7 @@ async fn create_service(
         multi_pass,
         id_keys,
         map,
-        receiver
+        receiver,
     )
 }
 
@@ -205,37 +203,43 @@ async fn open_does_not_throw() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
         create_service(Vec::new(), true).await;
     })
-        .await
-        .expect("timeout");
+    .await
+    .expect("timeout");
 }
 
 #[tokio::test]
 async fn connecting_to_peer_does_not_generate_errors() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
         #[allow(dead_code)]
-        let service_a
-            = create_service(Vec::new(), true).await;
+        let service_a = create_service(Vec::new(), true).await;
 
-        let mut service_b
-            = create_service(service_a.5.clone(), true).await;
+        let mut service_b = create_service(service_a.5.clone(), true).await;
 
-        pair_to_another_peer(&mut service_b.0, service_a.5.first().unwrap().clone().into(), service_b.1).await;
+        pair_to_another_peer(
+            &mut service_b.0,
+            service_a.5.first().unwrap().clone().into(),
+            service_b.1,
+        )
+        .await;
     })
-        .await
-        .expect("Timeout");
+    .await
+    .expect("Timeout");
 }
 
 #[tokio::test]
 async fn message_reaches_other_client() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let mut second_client =
-            create_service(Vec::new(), true).await;
+        let mut second_client = create_service(Vec::new(), true).await;
 
         let (mut first_client, first_client_log_handler, _, _, _, _, _) =
             create_service(second_client.5.clone(), true).await;
 
-        let (did_from_pair, _) =
-            pair_to_another_peer(&mut first_client, second_client.5.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
+        let (did_from_pair, _) = pair_to_another_peer(
+            &mut first_client,
+            second_client.5.first().unwrap().clone().into(),
+            first_client_log_handler.clone(),
+        )
+        .await;
 
         let mut some_data = Sata::default();
         some_data.add_recipient(did_from_pair.as_ref()).unwrap();
@@ -246,8 +250,8 @@ async fn message_reaches_other_client() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-        .await
-        .expect("Timeout");
+    .await
+    .expect("Timeout");
 }
 
 #[tokio::test]
@@ -258,7 +262,12 @@ async fn message_to_another_client_is_added_to_cache() {
         let (mut first_client, first_client_log_handler, _, _, _, _, _) =
             create_service(second_client.5.clone(), true).await;
 
-        let (did_from_pair, _) = pair_to_another_peer(&mut first_client, second_client.5.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
+        let (did_from_pair, _) = pair_to_another_peer(
+            &mut first_client,
+            second_client.5.first().unwrap().clone().into(),
+            first_client_log_handler.clone(),
+        )
+        .await;
 
         let mut some_data = Sata::default();
         some_data.add_recipient(did_from_pair.as_ref()).unwrap();
@@ -272,15 +281,14 @@ async fn message_to_another_client_is_added_to_cache() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-        .await
-        .expect("Timeout");
+    .await
+    .expect("Timeout");
 }
 
 #[tokio::test]
 async fn failure_to_identify_peer_causes_error() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let first_client =
-            create_service(Vec::new(), false).await;
+        let first_client = create_service(Vec::new(), false).await;
 
         let (mut second_client, log_handler_second_client, _, _, _, _, _) =
             create_service(first_client.5.clone(), false).await;
@@ -300,11 +308,15 @@ async fn failure_to_identify_peer_causes_error() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-        .await
-        .expect("Timeout");
+    .await
+    .expect("Timeout");
 }
 
-async fn pair_to_another_peer(service: &mut PeerToPeerService, dial_opts: DialOpts, logger: Arc<RwLock<LogHandler>>) -> (DID, String){
+async fn pair_to_another_peer(
+    service: &mut PeerToPeerService,
+    dial_opts: DialOpts,
+    logger: Arc<RwLock<LogHandler>>,
+) -> (DID, String) {
     service.pair_to_another_peer(dial_opts).await.unwrap();
 
     let mut found_event = false;
@@ -347,17 +359,16 @@ async fn assert_message(receiver: &mut Receiver<MessageContent>) {
 async fn send_message_sends_it_to_every_recipient() {
     tokio::time::timeout(Duration::from_secs(7), async {
         let message_content = "Test".to_string();
-        let mut client_a
-            = create_service(Vec::new(), true).await;
-        let mut client_b
-            = create_service(Vec::new(), true).await;
+        let mut client_a = create_service(Vec::new(), true).await;
+        let mut client_b = create_service(Vec::new(), true).await;
         client_a.5.extend(client_b.5.into_iter());
 
-        let (mut service_c, c_log, _, _, _, _, _)
-            = create_service(client_a.5.clone(), true).await;
+        let (mut service_c, c_log, _, _, _, _, _) = create_service(client_a.5.clone(), true).await;
 
-        let (did_a, _) = pair_to_another_peer(&mut service_c, client_a.5[0].clone().into(), c_log.clone()).await;
-        let (did_b, _) = pair_to_another_peer(&mut service_c, client_a.5[1].clone().into(), c_log.clone()).await;
+        let (did_a, _) =
+            pair_to_another_peer(&mut service_c, client_a.5[0].clone().into(), c_log.clone()).await;
+        let (did_b, _) =
+            pair_to_another_peer(&mut service_c, client_a.5[1].clone().into(), c_log.clone()).await;
 
         assert_ne!(did_a, did_b);
 
@@ -365,7 +376,9 @@ async fn send_message_sends_it_to_every_recipient() {
         sata.add_recipient(did_a.as_ref()).unwrap();
         sata.add_recipient(did_b.as_ref()).unwrap();
 
-        let to_send = sata.encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone()).unwrap();
+        let to_send = sata
+            .encode(IpldCodec::DagJson, Kind::Dynamic, message_content.clone())
+            .unwrap();
         assert_eq!(to_send.recipients().as_ref().unwrap().len(), 2);
 
         service_c.send(to_send).await.unwrap();
@@ -373,6 +386,6 @@ async fn send_message_sends_it_to_every_recipient() {
         assert_message(&mut client_a.6).await;
         assert_message(&mut client_b.6).await;
     })
-        .await
-        .expect("Timeout");
+    .await
+    .expect("Timeout");
 }

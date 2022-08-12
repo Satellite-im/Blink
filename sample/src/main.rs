@@ -9,10 +9,7 @@ use sata::{libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
-use tokio::{
-    task::JoinHandle,
-    sync::mpsc::Receiver
-};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use warp::crypto::{did_key, DID};
 use warp::sync::RwLock;
 
@@ -40,9 +37,7 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
 }
 
 async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
-    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
-        None,
-    )));
+    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(None)));
 
     info!("DID Key: {}", (*id_keys).to_string());
 
@@ -90,16 +85,14 @@ fn create_command_map_handler() -> HashMap<
                     if args.len() == 1 {
                         let addr = args[0].parse::<Multiaddr>();
                         match addr {
-                            Ok(x) => {
-                                match service.write().pair_to_another_peer(x.into()).await {
-                                    Ok(_) => {
-                                        info!("Sucess sending pairing request");
-                                    }
-                                    Err(_) => {
-                                        error!("Failure sending pairing request");
-                                    }
+                            Ok(x) => match service.write().pair_to_another_peer(x.into()).await {
+                                Ok(_) => {
+                                    info!("Sucess sending pairing request");
                                 }
-                            }
+                                Err(_) => {
+                                    error!("Failure sending pairing request");
+                                }
+                            },
                             Err(_) => {
                                 error!("Failed to parse address");
                             }
@@ -112,37 +105,41 @@ fn create_command_map_handler() -> HashMap<
         ),
     );
 
-    map_command.insert("send".to_string(), Box::new(
-        |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
-            Box::pin(async move {
-                if args.len() >= 2 {
-                    let mut sata = Sata::default();
-                    for item in &args[..args.len() - 1] {
-                        match DID::try_from(item.clone()) {
-                            Ok(did_key) => {
-                                if let Err(e) = sata.add_recipient(&did_key.as_ref()) {
-                                    error!("{}", anyhow::anyhow!(e).to_string());
+    map_command.insert(
+        "send".to_string(),
+        Box::new(
+            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
+                Box::pin(async move {
+                    if args.len() >= 2 {
+                        let mut sata = Sata::default();
+                        for item in &args[..args.len() - 1] {
+                            match DID::try_from(item.clone()) {
+                                Ok(did_key) => {
+                                    if let Err(e) = sata.add_recipient(&did_key.as_ref()) {
+                                        error!("{}", anyhow::anyhow!(e).to_string());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("{}", e.enum_to_string());
+                                }
+                            }
+                        }
+
+                        match sata.encode(IpldCodec::DagJson, Kind::Dynamic, args.last().unwrap()) {
+                            Ok(o) => {
+                                if let Err(x) = service.write().send(o).await {
+                                    error!("{}", anyhow::anyhow!(x).to_string());
                                 }
                             }
                             Err(e) => {
-                                error!("{}", e.enum_to_string());
+                                error!("{}", anyhow::anyhow!(e).to_string());
                             }
                         }
                     }
-
-                    match sata.encode(IpldCodec::DagJson, Kind::Dynamic, args.last().unwrap()) {
-                        Ok(o) => {
-                            if let Err(x) = service.write().send(o).await {
-                                error!("{}", anyhow::anyhow!(x).to_string());
-                            }
-                        }
-                        Err(e) => {
-                            error!("{}", anyhow::anyhow!(e).to_string());
-                        }
-                    }
-                }
-            })
-        }));
+                })
+            },
+        ),
+    );
 
     map_command
 }
