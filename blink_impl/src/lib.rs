@@ -1,5 +1,4 @@
 mod behavior;
-mod event_handlers;
 pub mod peer_to_peer_service;
 
 #[cfg(test)]

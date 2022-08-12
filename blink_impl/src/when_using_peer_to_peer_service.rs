@@ -1,6 +1,6 @@
 use blink_contract::{Event, EventBus};
-use did_key::{DIDKey, Ed25519KeyPair};
-use libp2p::{Multiaddr, PeerId};
+use did_key::Ed25519KeyPair;
+use libp2p::Multiaddr;
 use sata::{Kind, Sata};
 use std::{sync::atomic::AtomicBool, sync::Arc, time::Duration};
 use libp2p::swarm::dial_opts::DialOpts;
@@ -18,7 +18,6 @@ use warp::{
     Extension, SingleHandle,
 };
 use warp::sync::RwLock;
-use crate::{did_keypair_to_libp2p_keypair};
 use crate::peer_to_peer_service::{MessageContent, PeerToPeerService};
 
 const TIMEOUT_SECS: u64 = 1;
@@ -156,8 +155,6 @@ async fn create_service(
     let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
         None,
     )));
-    let key_pair = did_keypair_to_libp2p_keypair((*id_keys).as_ref()).unwrap();
-    let peer_id = PeerId::from(key_pair.public());
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let cache = Arc::new(RwLock::new(TestCache::default()));
     let log_handler = Arc::new(RwLock::new(LogHandler::new()));
@@ -215,13 +212,14 @@ async fn open_does_not_throw() {
 #[tokio::test]
 async fn connecting_to_peer_does_not_generate_errors() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (second_client, _, _, _, _, addr_map, _)
+        #[allow(dead_code)]
+        let service_a
             = create_service(Vec::new(), true).await;
 
-        let (mut first_client, event_bus_handler, _, _, _, _, _)
-            = create_service(addr_map.clone(), true).await;
+        let mut service_b
+            = create_service(service_a.5.clone(), true).await;
 
-        pair_to_another_peer(&mut first_client, addr_map.first().unwrap().clone().into(), event_bus_handler.clone()).await;
+        pair_to_another_peer(&mut service_b.0, service_a.5.first().unwrap().clone().into(), service_b.1).await;
     })
         .await
         .expect("Timeout");
@@ -230,21 +228,21 @@ async fn connecting_to_peer_does_not_generate_errors() {
 #[tokio::test]
 async fn message_reaches_other_client() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (mut second_client, _,  second_client_peer_id, _, second_client_did, second_client_addr, mut message_rx) =
+        let mut second_client =
             create_service(Vec::new(), true).await;
 
         let (mut first_client, first_client_log_handler, _, _, _, _, _) =
-            create_service(second_client_addr.clone(), true).await;
+            create_service(second_client.5.clone(), true).await;
 
         let (did_from_pair, _) =
-            pair_to_another_peer(&mut first_client, second_client_addr.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
+            pair_to_another_peer(&mut first_client, second_client.5.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
 
         let mut some_data = Sata::default();
         some_data.add_recipient(did_from_pair.as_ref()).unwrap();
 
         first_client.send(some_data).await.unwrap();
 
-        while message_rx.recv().await.is_none() {
+        while second_client.6.recv().await.is_none() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -255,20 +253,12 @@ async fn message_reaches_other_client() {
 #[tokio::test]
 async fn message_to_another_client_is_added_to_cache() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (
-            mut second_client,
-            _,
-            second_client_cache,
-            _,
-            _,
-            second_client_addr,
-            _
-        ) = create_service(Vec::new(), true).await;
+        let second_client = create_service(Vec::new(), true).await;
 
         let (mut first_client, first_client_log_handler, _, _, _, _, _) =
-            create_service(second_client_addr.clone(), true).await;
+            create_service(second_client.5.clone(), true).await;
 
-        let (did_from_pair, _) = pair_to_another_peer(&mut first_client, second_client_addr.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
+        let (did_from_pair, _) = pair_to_another_peer(&mut first_client, second_client.5.first().unwrap().clone().into(), first_client_log_handler.clone()).await;
 
         let mut some_data = Sata::default();
         some_data.add_recipient(did_from_pair.as_ref()).unwrap();
@@ -276,7 +266,7 @@ async fn message_to_another_client_is_added_to_cache() {
         first_client.send(some_data).await.unwrap();
 
         loop {
-            if second_client_cache.read().data_added.len() > 0 {
+            if second_client.2.read().data_added.len() > 0 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -289,14 +279,14 @@ async fn message_to_another_client_is_added_to_cache() {
 #[tokio::test]
 async fn failure_to_identify_peer_causes_error() {
     tokio::time::timeout(Duration::from_secs(TIMEOUT_SECS), async {
-        let (cli, _, _, _, _, first_client_address, _) =
+        let first_client =
             create_service(Vec::new(), false).await;
 
         let (mut second_client, log_handler_second_client, _, _, _, _, _) =
-            create_service(first_client_address.clone(), false).await;
+            create_service(first_client.5.clone(), false).await;
 
         second_client
-            .pair_to_another_peer(first_client_address.first().unwrap().clone().into())
+            .pair_to_another_peer(first_client.5.first().unwrap().clone().into())
             .await
             .unwrap();
 
@@ -357,17 +347,17 @@ async fn assert_message(receiver: &mut Receiver<MessageContent>) {
 async fn send_message_sends_it_to_every_recipient() {
     tokio::time::timeout(Duration::from_secs(7), async {
         let message_content = "Test".to_string();
-        let (cli_a, _, _, _, _, mut service_a_address, mut a_receiver)
+        let mut client_a
             = create_service(Vec::new(), true).await;
-        let (cli_b, _, _, _, _, service_b_address, mut b_receiver)
+        let mut client_b
             = create_service(Vec::new(), true).await;
-        service_a_address.extend(service_b_address.into_iter());
+        client_a.5.extend(client_b.5.into_iter());
 
         let (mut service_c, c_log, _, _, _, _, _)
-            = create_service(service_a_address.clone(), true).await;
+            = create_service(client_a.5.clone(), true).await;
 
-        let (did_a, _) = pair_to_another_peer(&mut service_c, service_a_address[0].clone().into(), c_log.clone()).await;
-        let (did_b, _) = pair_to_another_peer(&mut service_c, service_a_address[1].clone().into(), c_log.clone()).await;
+        let (did_a, _) = pair_to_another_peer(&mut service_c, client_a.5[0].clone().into(), c_log.clone()).await;
+        let (did_b, _) = pair_to_another_peer(&mut service_c, client_a.5[1].clone().into(), c_log.clone()).await;
 
         assert_ne!(did_a, did_b);
 
@@ -380,8 +370,8 @@ async fn send_message_sends_it_to_every_recipient() {
 
         service_c.send(to_send).await.unwrap();
 
-        assert_message(&mut a_receiver).await;
-        assert_message(&mut b_receiver).await;
+        assert_message(&mut client_a.6).await;
+        assert_message(&mut client_b.6).await;
     })
         .await
         .expect("Timeout");

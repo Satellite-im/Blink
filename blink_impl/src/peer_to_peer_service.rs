@@ -52,9 +52,7 @@ const CHANNEL_SIZE: usize = 64;
 
 #[derive(Debug)]
 pub(crate) enum BlinkCommand {
-    FindNearest(PeerId),
     Dial(DialOpts),
-    Subscribe(String),
     PublishToTopic(TopicName, SataWrapper),
 }
 
@@ -166,9 +164,6 @@ impl PeerToPeerService {
         logger: Arc<RwLock<impl EventBus>>,
     ) {
         match command {
-            BlinkCommand::FindNearest(peer_id) => {
-                swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
-            }
             BlinkCommand::Dial(dial_opts) => {
                 let peer_id = (&dial_opts)
                     .get_peer_id()
@@ -183,17 +178,6 @@ impl PeerToPeerService {
                         logger
                             .write()
                             .event_occurred(Event::DialError(err.to_string()));
-                    }
-                }
-            }
-            BlinkCommand::Subscribe(address) => {
-                let topic = IdentTopic::new(address.clone());
-                match swarm.behaviour_mut().gossip_sub.subscribe(&topic) {
-                    Ok(_) => {
-                        logger.write().event_occurred(Event::SubscribedToTopic(address));
-                    }
-                    Err(e) => {
-                        logger.write().event_occurred(Event::SubscriptionError(e.to_string()))
                     }
                 }
             }
