@@ -18,11 +18,11 @@ use crate::libp2p_pub_to_did;
 use crate::peer_to_peer_service::MessageContent;
 
 #[derive(Default)]
-pub struct IdentifyEventHandler {}
+pub(crate) struct IdentifyEventHandler {}
 
 #[async_trait]
 impl EventHandler for IdentifyEventHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) = event {
             return true;
         }
@@ -30,7 +30,7 @@ impl EventHandler for IdentifyEventHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, _: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, _: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::Behaviour(BehaviourEvent::IdentifyEvent(identify)) = event {
             match identify {
                 IdentifyEvent::Received { peer_id, info } => {
@@ -42,7 +42,7 @@ impl EventHandler for IdentifyEventHandler {
                                 .get_identity(Identifier::from(their_public.clone()))
                             {
                                 Ok(_) => {
-                                    let topic = Self::generate_topic_from_key_exchange(&*did, &their_public);
+                                    let topic = generate_topic_from_key_exchange(&*did, &their_public);
                                     let pb = their_public.clone().to_string();
                                     map.write().insert(pb, topic.clone());
 

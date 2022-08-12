@@ -15,11 +15,11 @@ use async_trait::async_trait;
 use libp2p::mdns::MdnsEvent;
 
 #[derive(Default)]
-struct MdnsHandler {}
+pub(crate) struct MdnsHandler {}
 
 #[async_trait]
 impl EventHandler for MdnsHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(_)) = event {
             return true;
         }
@@ -27,7 +27,7 @@ impl EventHandler for MdnsHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::Behaviour(BehaviourEvent::MdnsEvent(e)) = event {
             match e {
                 MdnsEvent::Discovered(list) => {

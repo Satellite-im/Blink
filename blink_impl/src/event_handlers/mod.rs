@@ -1,8 +1,8 @@
-mod identify;
-mod mdns;
-mod gossipsub;
-mod kademlia;
-mod swarm_event;
+pub(crate) mod identify;
+pub(crate) mod mdns;
+pub(crate) mod gossipsub;
+pub(crate) mod kademlia;
+pub(crate) mod swarm_event;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,8 +28,9 @@ pub(crate) type EventErrorType = EitherError<EitherError<EitherError<EitherError
 
 #[async_trait]
 pub(crate) trait EventHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool;
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>,
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool;
+    async fn handle(&mut self,
+                    swarm: &mut Swarm<BlinkBehavior>,
                     event: SwarmEvent<BehaviourEvent, EventErrorType>,
                     cache: Arc<RwLock<impl PocketDimension>>,
                     logger: Arc<RwLock<impl EventBus>>,

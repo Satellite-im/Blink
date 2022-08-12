@@ -24,7 +24,7 @@ pub(crate) struct ConnectionClosedHandler {}
 
 #[async_trait]
 impl EventHandler for ConnectionClosedHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::ConnectionClosed { peer_id, .. } = event {
             return true;
         }
@@ -32,7 +32,7 @@ impl EventHandler for ConnectionClosedHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::ConnectionClosed { peer_id, .. } = event {
             logger.write().event_occurred(Event::PeerConnectionClosed(peer_id.to_string()));
         }
@@ -41,7 +41,7 @@ impl EventHandler for ConnectionClosedHandler {
 
 #[async_trait]
 impl EventHandler for ConnectionEstablishedHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::ConnectionEstablished { .. } = event {
             return true;
         }
@@ -49,7 +49,7 @@ impl EventHandler for ConnectionEstablishedHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::ConnectionEstablished { peer_id, .. } = event {
             logger.write().event_occurred(Event::ConnectionEstablished(peer_id.to_string()));
         }
@@ -59,7 +59,7 @@ impl EventHandler for ConnectionEstablishedHandler {
 
 #[async_trait]
 impl EventHandler for NewListenerHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::NewListenAddr { .. } = event {
             return true;
         }
@@ -67,7 +67,7 @@ impl EventHandler for NewListenerHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::NewListenAddr { address, .. } = event {
             logger.write().event_occurred(Event::NewListenAddr(address));
         }

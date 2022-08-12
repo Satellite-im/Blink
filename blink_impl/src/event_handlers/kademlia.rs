@@ -20,7 +20,7 @@ pub(crate) struct KademliaEventHandler {
 
 #[async_trait]
 impl EventHandler for KademliaEventHandler {
-    fn can_handle(event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
+    fn can_handle(&mut self, event: &SwarmEvent<BehaviourEvent, EventErrorType>) -> bool {
         if let SwarmEvent::Behaviour(BehaviourEvent::KademliaEvent(_)) = event {
             return true;
         }
@@ -28,7 +28,7 @@ impl EventHandler for KademliaEventHandler {
         false
     }
 
-    async fn handle(swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
+    async fn handle(&mut self, swarm: &mut Swarm<BlinkBehavior>, event: SwarmEvent<BehaviourEvent, EventErrorType>, cache: Arc<RwLock<impl PocketDimension>>, logger: Arc<RwLock<impl EventBus>>, multi_pass: Arc<RwLock<impl MultiPass>>, message_sender: &Sender<MessageContent>, did: Arc<DID>, map: Arc<RwLock<HashMap<String, String>>>) {
         if let SwarmEvent::Behaviour(BehaviourEvent::KademliaEvent(kad)) = event {
             match kad {
                 KademliaEvent::InboundRequest { .. } => {}
