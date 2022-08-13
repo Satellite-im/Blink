@@ -87,7 +87,7 @@ fn create_command_map_handler() -> HashMap<
                         match addr {
                             Ok(x) => match service.write().pair_to_another_peer(x.into()).await {
                                 Ok(_) => {
-                                    info!("Sucess sending pairing request");
+                                    info!("Success sending pairing request");
                                 }
                                 Err(_) => {
                                     error!("Failure sending pairing request");
