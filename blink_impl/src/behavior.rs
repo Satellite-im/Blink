@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
-use libp2p::gossipsub::{
-    Gossipsub, GossipsubMessage, MessageAuthenticity, MessageId, ValidationMode,
-};
+use libp2p::gossipsub::{Gossipsub, MessageAuthenticity, ValidationMode};
+use libp2p::ping::{Ping, PingConfig, PingEvent};
 use libp2p::{
     gossipsub,
     gossipsub::GossipsubEvent,
@@ -12,11 +11,7 @@ use libp2p::{
     relay::v2::relay::{Event, Relay},
     NetworkBehaviour, PeerId,
 };
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    time::Duration
-};
+use std::time::Duration;
 
 const IDENTIFY_PROTOCOL_VERSION: &str = "/ipfs/0.1.0";
 
@@ -28,6 +23,7 @@ pub(crate) struct BlinkBehavior {
     pub(crate) identity: Identify,
     pub(crate) relay: Relay,
     pub(crate) mdns: Mdns,
+    pub(crate) ping: Ping,
 }
 
 impl BlinkBehavior {
@@ -48,11 +44,6 @@ impl BlinkBehavior {
         let config = gossipsub::GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
             .validation_mode(ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
-            .message_id_fn(|message: &GossipsubMessage| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                MessageId::from(s.finish().to_string())
-            }) // content-address messages. No two messages of the
             // same content will be propagated.
             .build()
             .expect("Valid config");
@@ -65,12 +56,15 @@ impl BlinkBehavior {
             key_pair.public(),
         ));
 
+        let ping = Ping::new(PingConfig::new().with_keep_alive(true));
+
         Ok(Self {
             gossip_sub,
             kademlia,
             relay,
             identity,
             mdns,
+            ping,
         })
     }
 }
@@ -82,6 +76,13 @@ pub(crate) enum BehaviourEvent {
     KademliaEvent(KademliaEvent),
     IdentifyEvent(IdentifyEvent),
     MdnsEvent(MdnsEvent),
+    PingEvent(PingEvent),
+}
+
+impl From<PingEvent> for BehaviourEvent {
+    fn from(ping_event: PingEvent) -> Self {
+        BehaviourEvent::PingEvent(ping_event)
+    }
 }
 
 impl From<MdnsEvent> for BehaviourEvent {

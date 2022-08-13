@@ -2,18 +2,15 @@ use crate::{
     did_key::Ed25519KeyPair,
     trait_impl::{EventHandlerImpl, MultiPassImpl, PocketDimensionImpl},
 };
-use blink_impl::peer_to_peer_service::peer_to_peer_service::{MessageContent, PeerToPeerService};
+use blink_impl::peer_to_peer_service::{MessageContent, PeerToPeerService};
 use libp2p::Multiaddr;
+use log::{error, info};
 use sata::{libipld::IpldCodec, Kind, Sata};
 use std::{
     collections::HashMap, future::Future, io::stdin, pin::Pin, sync::atomic::AtomicBool, sync::Arc,
 };
-use tokio::{
-    task::JoinHandle,
-    sync::mpsc::Receiver
-};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use warp::crypto::{did_key, DID};
-use log::{error, info};
 use warp::sync::RwLock;
 
 mod trait_impl;
@@ -24,7 +21,9 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
             let message = receiver.recv().await;
 
             if let Some(message_content) = message {
-                let res = std::str::from_utf8(&message_content.1.data()).unwrap().to_string();
+                let res = std::str::from_utf8(&message_content.1.data())
+                    .unwrap()
+                    .to_string();
                 info!(
                     "Message arrived, topic hash: {}, message content: {}",
                     message_content.0.to_string(),
@@ -38,9 +37,10 @@ fn handle_coming_messages(mut receiver: Receiver<MessageContent>) -> JoinHandle<
 }
 
 async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
-    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(
-        None,
-    )));
+    let id_keys = Arc::new(DID::from(did_key::generate::<Ed25519KeyPair>(None)));
+
+    info!("DID Key: {}", (*id_keys).to_string());
+
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let cache = Arc::new(RwLock::new(PocketDimensionImpl::default()));
     let log_handler = Arc::new(RwLock::new(EventHandlerImpl::default()));
@@ -64,10 +64,7 @@ async fn create_service() -> (PeerToPeerService, Receiver<MessageContent>) {
 fn create_command_map_handler() -> HashMap<
     String,
     Box<
-        dyn FnMut(
-            Arc<RwLock<PeerToPeerService>>,
-            Vec<String>,
-        ) -> Pin<Box<dyn Future<Output = ()>>>,
+        dyn FnMut(Arc<RwLock<PeerToPeerService>>, Vec<String>) -> Pin<Box<dyn Future<Output = ()>>>,
     >,
 > {
     let mut map_command: HashMap<
@@ -77,7 +74,8 @@ fn create_command_map_handler() -> HashMap<
                 Arc<RwLock<PeerToPeerService>>,
                 Vec<String>,
             ) -> Pin<Box<dyn Future<Output = ()>>>,
-        >> = HashMap::new();
+        >,
+    > = HashMap::new();
 
     map_command.insert(
         "pair".to_string(),
@@ -87,16 +85,14 @@ fn create_command_map_handler() -> HashMap<
                     if args.len() == 1 {
                         let addr = args[0].parse::<Multiaddr>();
                         match addr {
-                            Ok(x) => {
-                                match service.write().pair_to_another_peer(x.into()).await {
-                                    Ok(_) => {
-                                        info!("Sucess sending pairing request");
-                                    }
-                                    Err(_) => {
-                                        error!("Failure sending pairing request");
-                                    }
+                            Ok(x) => match service.write().pair_to_another_peer(x.into()).await {
+                                Ok(_) => {
+                                    info!("Sucess sending pairing request");
                                 }
-                            }
+                                Err(_) => {
+                                    error!("Failure sending pairing request");
+                                }
+                            },
                             Err(_) => {
                                 error!("Failed to parse address");
                             }
@@ -110,52 +106,35 @@ fn create_command_map_handler() -> HashMap<
     );
 
     map_command.insert(
-        "subscribe".to_string(),
+        "send".to_string(),
         Box::new(
             |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
                 Box::pin(async move {
-                    if args.len() == 1 {
-                        match service.write().subscribe_to_topic(args[0].clone()).await {
-                            Ok(_) => {
-                                info!("Success sending topic subscription");
-                            }
-                            Err(_) => {
-                                error!("Failure to send topic subscription");
+                    if args.len() >= 2 {
+                        let mut sata = Sata::default();
+                        for item in &args[..args.len() - 1] {
+                            match DID::try_from(item.clone()) {
+                                Ok(did_key) => {
+                                    if let Err(e) = sata.add_recipient(&did_key.as_ref()) {
+                                        error!("{}", anyhow::anyhow!(e).to_string());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("{}", e.enum_to_string());
+                                }
                             }
                         }
-                    } else {
-                        error!("subscribe topic");
-                    }
-                })
-            },
-        ),
-    );
 
-    map_command.insert(
-        "publish".to_string(),
-        Box::new(
-            |service: Arc<RwLock<PeerToPeerService>>, args: Vec<String>| {
-                Box::pin(async move {
-                    if args.len() == 2 {
-                        let sata = Sata::default();
-                        let result = sata.encode(IpldCodec::DagJson, Kind::Dynamic, args[1].clone());
-                        if result.is_ok() {
-                            match service.write()
-                                .publish_message_to_topic(args[0].clone(), result.unwrap())
-                                .await
-                            {
-                                Ok(_) => {
-                                    info!("Success sending publish message request");
-                                }
-                                Err(_) => {
-                                    error!("Failure sending publish message request");
+                        match sata.encode(IpldCodec::DagJson, Kind::Dynamic, args.last().unwrap()) {
+                            Ok(o) => {
+                                if let Err(x) = service.write().send(o).await {
+                                    error!("{}", anyhow::anyhow!(x).to_string());
                                 }
                             }
-                        } else {
-                            error!("Error encoding data");
+                            Err(e) => {
+                                error!("{}", anyhow::anyhow!(e).to_string());
+                            }
                         }
-                    } else {
-                        error!("publish topic content")
                     }
                 })
             },

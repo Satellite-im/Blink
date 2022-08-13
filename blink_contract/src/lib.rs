@@ -17,6 +17,7 @@ pub enum Event {
     ErrorDeserializingData,
     ErrorSerializingData,
     ErrorPublishingData(String),
+    GeneratedTopic(DID, String),
     SubscribedToTopic(String),
     FailureToIdentifyPeer,
     PeerIdentified,
@@ -25,16 +26,22 @@ pub enum Event {
     PeerConnectionClosed(String),
     ConnectionEstablished(String),
     TaskCancelled,
+    CouldntFindTopicForDid,
 }
 
 #[async_trait]
-pub trait BlinkPairToAnotherPeer {
+pub trait PairToAnotherPeerBlinkBehaviour {
     // Handshakes to another peer and verifies identity
     async fn pair(peers: Vec<DID>) -> Result<()>;
 }
 
 pub trait EventBus: Send + Sync {
     fn event_occurred(&mut self, event: Event);
+}
+
+#[async_trait]
+pub trait SendBlinkBehaviour {
+    async fn send(data: Sata) -> Result<()>;
 }
 
 #[async_trait]
